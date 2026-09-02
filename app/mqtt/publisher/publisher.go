@@ -105,6 +105,12 @@ func (m *mqttPublisher) PublishMode(ctx context.Context, input *models.PublishMo
 }
 
 func (m *mqttPublisher) PublishSwingMode(ctx context.Context, input *models.PublishSwingModeInput) error {
+	if input.SwingMode == "" {
+		slog.WarnContext(ctx, "skip publishing empty swing mode",
+			slog.String("device", input.Mac))
+		return nil
+	}
+
 	topic := m.mqttConfig.TopicPrefix + "/" + input.Mac + "/swing_mode/value"
 
 	token := m.client.Publish(topic, 0, false, input.SwingMode)

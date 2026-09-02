@@ -455,7 +455,11 @@ func (s *service) GetDeviceStates(ctx context.Context, input *models.GetDeviceSt
 
 	deviceStatusHA := raw.ConvertToDeviceStatusHA(readDeviceConfigReturn.Config.InvertDisplay)
 	slog.DebugContext(ctx, "The converted current device status",
-		slog.String("device", input.Mac))
+		slog.String("device", input.Mac),
+		slog.Any("status", deviceStatusHA),
+		slog.Int("fixationVertical", int(raw.FixationVertical)),
+		slog.Int("mute", int(raw.Mute)),
+		slog.Int("fanSpeed", int(raw.FanSpeed)))
 
 	g, gCtx := errgroup.WithContext(ctx)
 	g.Go(func() error {
@@ -534,6 +538,12 @@ func (s *service) GetDeviceStates(ctx context.Context, input *models.GetDeviceSt
 	})
 
 	g.Go(func() error {
+		if deviceStatusHA.SwingMode == "" {
+			slog.WarnContext(gCtx, "skip publishing empty swing mode",
+				slog.String("device", input.Mac),
+				slog.Int("fixationVertical", int(raw.FixationVertical)))
+			return nil
+		}
 		if readDeviceStatusRawReturn == nil ||
 			readDeviceStatusRawReturn.Status.FixationVertical != raw.FixationVertical {
 			publishSwingModeInput := &modelsMqtt.PublishSwingModeInput{
@@ -793,7 +803,7 @@ func (s *service) PublishDiscoveryTopic(ctx context.Context, input *models.Publi
 	device := modelsMqtt.DiscoveryTopicDevice{
 		Model: "AirCon",
 		Mf:    "broadlink",
-		Sw:    "v1.5.9",
+		Sw:    "v1.5.10",
 		Ids:   input.Device.Mac,
 		Name:  input.Device.Name,
 	}

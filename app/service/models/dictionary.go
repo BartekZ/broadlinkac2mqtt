@@ -13,6 +13,7 @@ const (
 
 var (
 	VerticalFixationStatuses = map[int]string{
+		0b00000000: "off",
 		0b00000001: "top",
 		0b00000010: "middle1",
 		0b00000011: "middle2",
@@ -23,6 +24,7 @@ var (
 	}
 
 	VerticalFixationStatusesInvert = map[string]int{
+		"off":     0b00000000,
 		"top":     0b00000001,
 		"middle1": 0b00000010,
 		"middle2": 0b00000011,

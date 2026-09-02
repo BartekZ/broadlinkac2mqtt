@@ -152,16 +152,18 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 				return err
 			}
 
-			publishSwingModeInput := &modelsMqtt.PublishSwingModeInput{
-				Mac:       mac,
-				SwingMode: hassStatus.SwingMode,
-			}
-			err = s.mqtt.PublishSwingMode(gCtx, publishSwingModeInput)
-			if err != nil {
-				slog.ErrorContext(gCtx, "failed to publish the device swing mode",
-					slog.Any("err", err),
-					slog.Any("input", publishSwingModeInput))
-				return err
+			if hassStatus.SwingMode != "" {
+				publishSwingModeInput := &modelsMqtt.PublishSwingModeInput{
+					Mac:       mac,
+					SwingMode: hassStatus.SwingMode,
+				}
+				err = s.mqtt.PublishSwingMode(gCtx, publishSwingModeInput)
+				if err != nil {
+					slog.ErrorContext(gCtx, "failed to publish the device swing mode",
+						slog.Any("err", err),
+						slog.Any("input", publishSwingModeInput))
+					return err
+				}
 			}
 
 			publishDisplaySwitchInput := &modelsMqtt.PublishDisplaySwitchInput{

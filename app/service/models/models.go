@@ -126,10 +126,13 @@ func (raw DeviceStatusRaw) ConvertToDeviceStatusHA(invertDisplay bool) (mqttStat
 		deviceStatusMqtt.FanMode = "turbo"
 	}
 
-	// Swing Modes
+	// Swing Modes. 0 is STOP in the AUX protocol; some units also report 0
+	// after an unsupported swing request (for example swing while mute).
 	verticalFixationStatus, ok := VerticalFixationStatuses[int(raw.FixationVertical)]
 	if ok {
 		deviceStatusMqtt.SwingMode = verticalFixationStatus
+	} else {
+		deviceStatusMqtt.SwingMode = "off"
 	}
 
 	deviceStatusMqtt.DisplaySwitch = DisplayByteToHass(raw.Display, invertDisplay)
