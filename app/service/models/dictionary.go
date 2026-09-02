@@ -32,7 +32,7 @@ var (
 		"auto":    0b00000111,
 	}
 
-	//horizontalFixationStatuses = map[int]string{
+	// horizontalFixationStatuses = map[int]string{
 	//	2: "LEFT_FIX",
 	//	1: "LEFT_FLAP",
 	//	7: "LEFT_RIGHT_FIX",

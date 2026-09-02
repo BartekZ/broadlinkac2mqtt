@@ -153,7 +153,7 @@ func (m *deviceMonitor) pollState(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		m.s.logger.ErrorContext(ctx, "failed to get AC States",
+		slog.ErrorContext(ctx, "failed to get AC States",
 			slog.Any("err", err),
 			slog.String("device", m.mac))
 		m.onGetFailure(ctx)
@@ -176,7 +176,7 @@ func (m *deviceMonitor) pollAmbient(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		m.s.logger.ErrorContext(ctx, "failed to get ambient temperature",
+		slog.ErrorContext(ctx, "failed to get ambient temperature",
 			slog.Any("err", err),
 			slog.String("device", m.mac))
 	}
@@ -190,7 +190,7 @@ func (m *deviceMonitor) applyPendingCommands(ctx context.Context, pollTicker *ti
 
 	pending, err := m.readPending(ctx)
 	if err != nil {
-		m.s.logger.ErrorContext(ctx, "failed to read mqtt commands from cache",
+		slog.ErrorContext(ctx, "failed to read mqtt commands from cache",
 			slog.Any("err", err),
 			slog.String("device", m.mac))
 		if err = m.sleepBackoff(ctx); err != nil {
@@ -227,7 +227,7 @@ func (m *deviceMonitor) applyPendingCommands(ctx context.Context, pollTicker *ti
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		m.s.logger.ErrorContext(ctx, "failed to update device states",
+		slog.ErrorContext(ctx, "failed to update device states",
 			slog.Any("err", err),
 			slog.String("device", m.mac),
 			slog.Any("input", updateDeviceStatesInput))
@@ -250,7 +250,7 @@ func (m *deviceMonitor) applyPendingCommands(ctx context.Context, pollTicker *ti
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		m.s.logger.ErrorContext(ctx, "failed to confirm AC States after command",
+		slog.ErrorContext(ctx, "failed to confirm AC States after command",
 			slog.Any("err", err),
 			slog.String("device", m.mac))
 		m.onGetFailure(ctx)
@@ -346,7 +346,7 @@ func (m *deviceMonitor) hasRawStatus(ctx context.Context) bool {
 		return true
 	}
 	if !errors.Is(err, modelsRepo.ErrorDeviceStatusRawNotFound) {
-		m.s.logger.ErrorContext(ctx, "failed to read raw device status",
+		slog.ErrorContext(ctx, "failed to read raw device status",
 			slog.Any("err", err),
 			slog.String("device", m.mac))
 	}
@@ -366,7 +366,7 @@ func (m *deviceMonitor) onGetSuccess(ctx context.Context) {
 	m.consecutiveFails = 0
 	m.backoffStep = 0
 	m.hasSuccess = true
-	m.s.logger.DebugContext(ctx, "device poll succeeded",
+	slog.DebugContext(ctx, "device poll succeeded",
 		slog.String("device", m.mac),
 		slog.Time("lastSuccess", m.lastSuccess))
 	m.setAvailability(ctx, true)
@@ -394,7 +394,7 @@ func (m *deviceMonitor) setAvailability(ctx context.Context, online bool) {
 		Availability: availability,
 	})
 	if err != nil {
-		m.s.logger.ErrorContext(ctx, "failed to update device availability",
+		slog.ErrorContext(ctx, "failed to update device availability",
 			slog.Any("err", err),
 			slog.String("device", m.mac),
 			slog.String("availability", availability))

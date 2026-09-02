@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"io"
-	"log/slog"
 	"testing"
 	"time"
 )
@@ -48,7 +46,7 @@ func TestWakeMonitorNonBlocking(t *testing.T) {
 }
 
 func TestOnGetFailureMarksOfflineAfterThreeFails(t *testing.T) {
-	s := &service{logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	s := &service{}
 	m := &deviceMonitor{
 		s:            s,
 		mac:          "aabbccddeeff",

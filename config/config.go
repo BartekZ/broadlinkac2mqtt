@@ -49,7 +49,7 @@ type (
 )
 
 // NewConfig returns app config.
-func NewConfig(logger *slog.Logger) (*Config, error) {
+func NewConfig() (*Config, error) {
 	cfg := &Config{}
 
 	files := [...]string{
@@ -60,9 +60,9 @@ func NewConfig(logger *slog.Logger) (*Config, error) {
 
 	for i := range files {
 		if _, err := os.Stat(files[i]); err == nil {
-			err := cleanenv.ReadConfig(files[i], cfg)
+			err = cleanenv.ReadConfig(files[i], cfg)
 			if err != nil {
-				logger.Error("failed to read config", slog.Any("err", err))
+				slog.Error("failed to read config", slog.Any("err", err))
 				return nil, err
 			}
 			return cfg, nil

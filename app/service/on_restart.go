@@ -19,7 +19,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 
 	readAuthedDevicesReturn, err := s.cache.ReadAuthedDevices(ctx)
 	if err != nil {
-		s.logger.ErrorContext(ctx, "failed to read authed devices",
+		slog.ErrorContext(ctx, "failed to read authed devices",
 			slog.Any("err", err))
 		return err
 	}
@@ -36,7 +36,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			readDeviceStatusRawReturn, err := s.cache.ReadDeviceStatusRaw(gCtx, readDeviceStatusRawInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to read the device status",
+				slog.ErrorContext(gCtx, "failed to read the device status",
 					slog.Any("err", err),
 					slog.Any("input", readDeviceStatusRawInput))
 				return err
@@ -47,7 +47,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			readDeviceConfigReturn, err := s.cache.ReadDeviceConfig(gCtx, readDeviceConfigInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to read device config",
+				slog.ErrorContext(gCtx, "failed to read device config",
 					slog.Any("err", err),
 					slog.Any("input", readDeviceConfigInput))
 				return err
@@ -59,7 +59,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 
 			readAmbientTempReturn, err := s.cache.ReadAmbientTemp(gCtx, readAmbientTempInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to read the ambient temperature",
+				slog.ErrorContext(gCtx, "failed to read the ambient temperature",
 					slog.Any("err", err),
 					slog.Any("input", readAmbientTempInput))
 				return err
@@ -69,7 +69,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 
 			readDeviceAvailabilityReturn, err := s.cache.ReadDeviceAvailability(gCtx, readDeviceAvailabilityInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to read the device availability",
+				slog.ErrorContext(gCtx, "failed to read the device availability",
 					slog.Any("err", err),
 					slog.Any("input", readDeviceAvailabilityInput))
 				return err
@@ -81,13 +81,15 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 
 			err = s.PublishDiscoveryTopic(gCtx, &models.PublishDiscoveryTopicInput{Device: models.DeviceConfig(readDeviceConfigReturn.Config)})
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish the discovery topic",
+				slog.ErrorContext(gCtx, "failed to publish the discovery topic",
 					slog.Any("err", err),
 					slog.Any("input", readDeviceConfigReturn.Config))
 				return err
 			}
 
-			time.Sleep(time.Millisecond * 500)
+			if err := sleepCtx(gCtx, 500*time.Millisecond); err != nil {
+				return err
+			}
 
 			publishAvailabilityInput := &modelsMqtt.PublishAvailabilityInput{
 				Mac:          mac,
@@ -95,7 +97,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishAvailability(gCtx, publishAvailabilityInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish device availability",
+				slog.ErrorContext(gCtx, "failed to publish device availability",
 					slog.Any("err", err),
 					slog.Any("input", publishAvailabilityInput))
 				return err
@@ -108,7 +110,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishAmbientTemp(gCtx, publishAmbientTempInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish ambient temperature",
+				slog.ErrorContext(gCtx, "failed to publish ambient temperature",
 					slog.Any("err", err),
 					slog.Any("input", publishAmbientTempInput))
 				return err
@@ -120,7 +122,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishTemperature(gCtx, publishTemperatureInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish the device set temperature",
+				slog.ErrorContext(gCtx, "failed to publish the device set temperature",
 					slog.Any("err", err),
 					slog.Any("input", publishTemperatureInput))
 				return err
@@ -132,7 +134,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishMode(gCtx, publishModeInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish the device mode",
+				slog.ErrorContext(gCtx, "failed to publish the device mode",
 					slog.Any("err", err),
 					slog.Any("input", publishModeInput))
 				return err
@@ -144,7 +146,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishFanMode(gCtx, publishFanModeInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish the device fan mode",
+				slog.ErrorContext(gCtx, "failed to publish the device fan mode",
 					slog.Any("err", err),
 					slog.Any("input", publishFanModeInput))
 				return err
@@ -156,7 +158,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishSwingMode(gCtx, publishSwingModeInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish the device swing mode",
+				slog.ErrorContext(gCtx, "failed to publish the device swing mode",
 					slog.Any("err", err),
 					slog.Any("input", publishSwingModeInput))
 				return err
@@ -168,7 +170,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishDisplaySwitch(gCtx, publishDisplaySwitchInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish the display switch status",
+				slog.ErrorContext(gCtx, "failed to publish the display switch status",
 					slog.Any("err", err),
 					slog.Any("input", publishDisplaySwitchInput))
 				return err
@@ -180,7 +182,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishMildewSwitch(gCtx, publishMildewSwitchInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish the mildew switch status",
+				slog.ErrorContext(gCtx, "failed to publish the mildew switch status",
 					slog.Any("err", err),
 					slog.Any("input", publishMildewSwitchInput))
 				return err
@@ -192,7 +194,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishCleanSwitch(gCtx, publishCleanSwitchInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish the clean switch status",
+				slog.ErrorContext(gCtx, "failed to publish the clean switch status",
 					slog.Any("err", err),
 					slog.Any("input", publishCleanSwitchInput))
 				return err
@@ -204,7 +206,7 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 			}
 			err = s.mqtt.PublishHealthSwitch(gCtx, publishHealthSwitchInput)
 			if err != nil {
-				s.logger.ErrorContext(gCtx, "failed to publish the health switch status",
+				slog.ErrorContext(gCtx, "failed to publish the health switch status",
 					slog.Any("err", err),
 					slog.Any("input", publishHealthSwitchInput))
 				return err

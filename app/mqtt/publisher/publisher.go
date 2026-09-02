@@ -2,7 +2,7 @@ package publisher
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 
@@ -13,14 +13,12 @@ import (
 )
 
 type mqttPublisher struct {
-	logger     *slog.Logger
 	mqttConfig models.ConfigMqtt
 	client     paho.Client
 }
 
-func NewMqttSender(logger *slog.Logger, mqttConfig models.ConfigMqtt, client paho.Client) app.MqttPublisher {
+func NewMqttSender(mqttConfig models.ConfigMqtt, client paho.Client) app.MqttPublisher {
 	return &mqttPublisher{
-		logger:     logger,
 		mqttConfig: mqttConfig,
 		client:     client,
 	}
@@ -33,7 +31,7 @@ func (m *mqttPublisher) PublishClimateDiscoveryTopic(ctx context.Context, input 
 
 	payload, err := json.Marshal(input.Topic)
 	if err != nil {
-		m.logger.ErrorContext(ctx, "Failed to marshal discovery topic", slog.Any("input", input.Topic), slog.Any("err", err))
+		slog.ErrorContext(ctx, "Failed to marshal discovery topic", slog.Any("input", input.Topic), slog.Any("err", err))
 		return err
 	}
 
@@ -55,7 +53,7 @@ func (m *mqttPublisher) PublishSwitchDiscoveryTopic(ctx context.Context, input m
 
 	payload, err := json.Marshal(input.Topic)
 	if err != nil {
-		m.logger.ErrorContext(ctx, "Failed to marshal discovery topic", slog.Any("input", input.Topic), slog.Any("err", err))
+		slog.ErrorContext(ctx, "Failed to marshal discovery topic", slog.Any("input", input.Topic), slog.Any("err", err))
 		return err
 	}
 
