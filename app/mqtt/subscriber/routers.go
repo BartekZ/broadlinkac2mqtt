@@ -29,4 +29,10 @@ func Routers(ctx context.Context, logger *slog.Logger, mac string, topicPrefix s
 	if token := client.Subscribe(prefix+"/mildew/switch/set", 0, handler.UpdateMildewSwitchCommandTopic(ctx)); token.Wait() && token.Error() != nil {
 		logger.ErrorContext(ctx, "failed to subscribe on topic", slog.Any("err", token.Error()))
 	}
+	if token := client.Subscribe(prefix+"/clean/switch/set", 0, handler.UpdateCleanSwitchCommandTopic(ctx)); token.Wait() && token.Error() != nil {
+		logger.ErrorContext(ctx, "failed to subscribe on topic", slog.Any("err", token.Error()))
+	}
+	if token := client.Subscribe(prefix+"/health/switch/set", 0, handler.UpdateHealthSwitchCommandTopic(ctx)); token.Wait() && token.Error() != nil {
+		logger.ErrorContext(ctx, "failed to subscribe on topic", slog.Any("err", token.Error()))
+	}
 }

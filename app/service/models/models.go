@@ -46,6 +46,8 @@ type DeviceStatusHass struct {
 	Temperature   float32
 	DisplaySwitch string
 	MildewSwitch  string
+	CleanSwitch   string
+	HealthSwitch  string
 }
 
 type DeviceStatusRaw struct {
@@ -131,23 +133,33 @@ func (raw DeviceStatusRaw) ConvertToDeviceStatusHA(invertDisplay bool) (mqttStat
 	}
 
 	deviceStatusMqtt.DisplaySwitch = DisplayByteToHass(raw.Display, invertDisplay)
-	deviceStatusMqtt.MildewSwitch = MildewByteToHass(raw.Mildew)
+	deviceStatusMqtt.MildewSwitch = OnOffByteToHass(raw.Mildew)
+	deviceStatusMqtt.CleanSwitch = OnOffByteToHass(raw.Clean)
+	deviceStatusMqtt.HealthSwitch = OnOffByteToHass(raw.Health)
 
 	return deviceStatusMqtt
 }
 
-func MildewByteToHass(mildew byte) string {
-	if mildew == StatusOn {
+func OnOffByteToHass(value byte) string {
+	if value == StatusOn {
 		return "ON"
 	}
 	return "OFF"
 }
 
-func HassMildewToByte(isOn bool) byte {
+func HassOnOffToByte(isOn bool) byte {
 	if isOn {
 		return StatusOn
 	}
 	return StatusOff
+}
+
+func MildewByteToHass(mildew byte) string {
+	return OnOffByteToHass(mildew)
+}
+
+func HassMildewToByte(isOn bool) byte {
+	return HassOnOffToByte(isOn)
 }
 
 type CreateDeviceInput struct {
@@ -253,6 +265,8 @@ type UpdateDeviceStatesInput struct {
 	Temperature *float32
 	IsDisplayOn *bool
 	IsMildewOn  *bool
+	IsCleanOn   *bool
+	IsHealthOn  *bool
 }
 
 type CreateCommandPayloadReturn struct {
@@ -292,6 +306,30 @@ type UpdateMildewSwitchInput struct {
 func (input *UpdateMildewSwitchInput) Validate() error {
 	if input.Status != "ON" && input.Status != "OFF" {
 		return ErrorInvalidParameterMildewStatus
+	}
+	return nil
+}
+
+type UpdateCleanSwitchInput struct {
+	Mac    string
+	Status string
+}
+
+func (input *UpdateCleanSwitchInput) Validate() error {
+	if input.Status != "ON" && input.Status != "OFF" {
+		return ErrorInvalidParameterCleanStatus
+	}
+	return nil
+}
+
+type UpdateHealthSwitchInput struct {
+	Mac    string
+	Status string
+}
+
+func (input *UpdateHealthSwitchInput) Validate() error {
+	if input.Status != "ON" && input.Status != "OFF" {
+		return ErrorInvalidParameterHealthStatus
 	}
 	return nil
 }

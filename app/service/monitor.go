@@ -34,6 +34,8 @@ type deviceMonitor struct {
 	temperatureUpdatedTime time.Time
 	isDisplayOnUpdatedTime time.Time
 	isMildewOnUpdatedTime  time.Time
+	isCleanOnUpdatedTime   time.Time
+	isHealthOnUpdatedTime  time.Time
 
 	lastSuccess      time.Time
 	lastUDP          time.Time
@@ -52,6 +54,8 @@ type pendingCommands struct {
 	temperature *float32
 	isDisplayOn *bool
 	isMildewOn  *bool
+	isCleanOn   *bool
+	isHealthOn  *bool
 
 	modeAt     time.Time
 	swingAt    time.Time
@@ -59,6 +63,8 @@ type pendingCommands struct {
 	tempAt     time.Time
 	displayAt  time.Time
 	mildewAt   time.Time
+	cleanAt    time.Time
+	healthAt   time.Time
 	anyPending bool
 }
 
@@ -212,6 +218,8 @@ func (m *deviceMonitor) applyPendingCommands(ctx context.Context, pollTicker *ti
 		Temperature: pending.temperature,
 		IsDisplayOn: pending.isDisplayOn,
 		IsMildewOn:  pending.isMildewOn,
+		IsCleanOn:   pending.isCleanOn,
+		IsHealthOn:  pending.isHealthOn,
 	}
 	err = m.s.UpdateDeviceStates(ctx, updateDeviceStatesInput)
 	m.lastUDP = time.Now()
@@ -292,6 +300,16 @@ func (m *deviceMonitor) readPending(ctx context.Context) (*pendingCommands, erro
 		pending.mildewAt = message.IsMildewOn.UpdatedAt
 		pending.anyPending = true
 	}
+	if message.IsCleanOn != nil && !message.IsCleanOn.UpdatedAt.Equal(m.isCleanOnUpdatedTime) {
+		pending.isCleanOn = &message.IsCleanOn.IsCleanOn
+		pending.cleanAt = message.IsCleanOn.UpdatedAt
+		pending.anyPending = true
+	}
+	if message.IsHealthOn != nil && !message.IsHealthOn.UpdatedAt.Equal(m.isHealthOnUpdatedTime) {
+		pending.isHealthOn = &message.IsHealthOn.IsHealthOn
+		pending.healthAt = message.IsHealthOn.UpdatedAt
+		pending.anyPending = true
+	}
 	return pending, nil
 }
 
@@ -313,6 +331,12 @@ func (m *deviceMonitor) rememberApplied(pending *pendingCommands) {
 	}
 	if pending.isMildewOn != nil {
 		m.isMildewOnUpdatedTime = pending.mildewAt
+	}
+	if pending.isCleanOn != nil {
+		m.isCleanOnUpdatedTime = pending.cleanAt
+	}
+	if pending.isHealthOn != nil {
+		m.isHealthOnUpdatedTime = pending.healthAt
 	}
 }
 

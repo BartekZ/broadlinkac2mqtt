@@ -165,3 +165,27 @@ func (m *mqttPublisher) PublishMildewSwitch(ctx context.Context, input *models.P
 		return token.Error()
 	}
 }
+
+func (m *mqttPublisher) PublishCleanSwitch(ctx context.Context, input *models.PublishCleanSwitchInput) error {
+	topic := m.mqttConfig.TopicPrefix + "/" + input.Mac + "/clean/switch/value"
+
+	token := m.client.Publish(topic, 0, false, input.Status)
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-token.Done():
+		return token.Error()
+	}
+}
+
+func (m *mqttPublisher) PublishHealthSwitch(ctx context.Context, input *models.PublishHealthSwitchInput) error {
+	topic := m.mqttConfig.TopicPrefix + "/" + input.Mac + "/health/switch/value"
+
+	token := m.client.Publish(topic, 0, false, input.Status)
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-token.Done():
+		return token.Error()
+	}
+}

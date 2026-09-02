@@ -41,13 +41,14 @@ type ClimateDiscoveryTopic struct {
 }
 
 type SwitchDiscoveryTopic struct {
-	Device       DiscoveryTopicDevice       `json:"device"`
-	Name         string                     `json:"name" example:"childroom"`
-	UniqueId     string                     `json:"unique_id" example:"34ea345b0fd4"`
-	StateTopic   string                     `json:"state_topic" example:"aircon/34ea345b0fd4/display/switch"`
-	CommandTopic string                     `json:"command_topic" example:"aircon/34ea345b0fd4/display/switch/set"`
-	Availability DiscoveryTopicAvailability `json:"availability"`
-	Icon         string                     `json:"icon"`
+	Device           DiscoveryTopicDevice       `json:"device"`
+	Name             string                     `json:"name" example:"childroom"`
+	UniqueId         string                     `json:"unique_id" example:"34ea345b0fd4"`
+	StateTopic       string                     `json:"state_topic" example:"aircon/34ea345b0fd4/display/switch"`
+	CommandTopic     string                     `json:"command_topic" example:"aircon/34ea345b0fd4/display/switch/set"`
+	Availability     DiscoveryTopicAvailability `json:"availability"`
+	Icon             string                     `json:"icon"`
+	EnabledByDefault *bool                      `json:"enabled_by_default,omitempty"`
 }
 
 type DiscoveryTopicDevice struct {
@@ -107,6 +108,16 @@ type PublishDisplaySwitchInput struct {
 }
 
 type PublishMildewSwitchInput struct {
+	Mac    string
+	Status string
+}
+
+type PublishCleanSwitchInput struct {
+	Mac    string
+	Status string
+}
+
+type PublishHealthSwitchInput struct {
 	Mac    string
 	Status string
 }

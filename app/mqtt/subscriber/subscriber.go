@@ -181,3 +181,47 @@ func (m *mqttSubscriber) UpdateMildewSwitchCommandTopic(ctx context.Context) mqt
 		}
 	}
 }
+
+func (m *mqttSubscriber) UpdateCleanSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler {
+	return func(c mqtt.Client, msg mqtt.Message) {
+		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/clean/switch/set"), m.mqttConfig.TopicPrefix+"/")
+
+		m.logger.DebugContext(ctx, "new update clean status message",
+			slog.String("device", mac),
+			slog.String("payload", string(msg.Payload())),
+			slog.String("topic", msg.Topic()))
+
+		updateCleanSwitchInput := &modelsservice.UpdateCleanSwitchInput{
+			Mac:    mac,
+			Status: string(msg.Payload()),
+		}
+
+		err := m.service.UpdateCleanSwitch(ctx, updateCleanSwitchInput)
+		if err != nil {
+			m.logger.ErrorContext(ctx, "failed to update clean switch", slog.Any("input", updateCleanSwitchInput))
+			return
+		}
+	}
+}
+
+func (m *mqttSubscriber) UpdateHealthSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler {
+	return func(c mqtt.Client, msg mqtt.Message) {
+		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/health/switch/set"), m.mqttConfig.TopicPrefix+"/")
+
+		m.logger.DebugContext(ctx, "new update health status message",
+			slog.String("device", mac),
+			slog.String("payload", string(msg.Payload())),
+			slog.String("topic", msg.Topic()))
+
+		updateHealthSwitchInput := &modelsservice.UpdateHealthSwitchInput{
+			Mac:    mac,
+			Status: string(msg.Payload()),
+		}
+
+		err := m.service.UpdateHealthSwitch(ctx, updateHealthSwitchInput)
+		if err != nil {
+			m.logger.ErrorContext(ctx, "failed to update health switch", slog.Any("input", updateHealthSwitchInput))
+			return
+		}
+	}
+}

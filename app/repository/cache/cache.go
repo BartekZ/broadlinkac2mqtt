@@ -220,6 +220,8 @@ func (c *cache) ReadMqttMessage(ctx context.Context, input *models.ReadMqttMessa
 		Mode:        device.MqttLastMessage.Mode,
 		IsDisplayOn: device.MqttLastMessage.DisplaySwitch,
 		IsMildewOn:  device.MqttLastMessage.MildewSwitch,
+		IsCleanOn:   device.MqttLastMessage.CleanSwitch,
+		IsHealthOn:  device.MqttLastMessage.HealthSwitch,
 	}, nil
 }
 
@@ -296,6 +298,36 @@ func (c *cache) UpsertMqttMildewSwitchMessage(ctx context.Context, input *models
 	}
 
 	device.MqttLastMessage.MildewSwitch = &input.MildewSwitch
+	c.devices[input.Mac] = device
+	return nil
+}
+
+func (c *cache) UpsertMqttCleanSwitchMessage(ctx context.Context, input *models.UpsertMqttCleanSwitchMessageInput) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	device, ok := c.devices[input.Mac]
+	if !ok {
+		c.logger.ErrorContext(ctx, "device is not found in cache", slog.Any("input", input))
+		return models.ErrorDeviceNotFound
+	}
+
+	device.MqttLastMessage.CleanSwitch = &input.CleanSwitch
+	c.devices[input.Mac] = device
+	return nil
+}
+
+func (c *cache) UpsertMqttHealthSwitchMessage(ctx context.Context, input *models.UpsertMqttHealthSwitchMessageInput) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	device, ok := c.devices[input.Mac]
+	if !ok {
+		c.logger.ErrorContext(ctx, "device is not found in cache", slog.Any("input", input))
+		return models.ErrorDeviceNotFound
+	}
+
+	device.MqttLastMessage.HealthSwitch = &input.HealthSwitch
 	c.devices[input.Mac] = device
 	return nil
 }

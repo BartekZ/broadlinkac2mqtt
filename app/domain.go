@@ -17,6 +17,8 @@ type MqttSubscriber interface {
 	UpdateTemperatureCommandTopic(ctx context.Context) mqtt.MessageHandler
 	UpdateDisplaySwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
 	UpdateMildewSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
+	UpdateCleanSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
+	UpdateHealthSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
 
 	GetStatesOnHomeAssistantRestart(ctx context.Context) mqtt.MessageHandler
 }
@@ -32,6 +34,8 @@ type MqttPublisher interface {
 	PublishAvailability(ctx context.Context, input *modelsMqtt.PublishAvailabilityInput) error
 	PublishDisplaySwitch(ctx context.Context, input *modelsMqtt.PublishDisplaySwitchInput) error
 	PublishMildewSwitch(ctx context.Context, input *modelsMqtt.PublishMildewSwitchInput) error
+	PublishCleanSwitch(ctx context.Context, input *modelsMqtt.PublishCleanSwitchInput) error
+	PublishHealthSwitch(ctx context.Context, input *modelsMqtt.PublishHealthSwitchInput) error
 }
 
 type Service interface {
@@ -46,6 +50,8 @@ type Service interface {
 	UpdateTemperature(ctx context.Context, input *modelsService.UpdateTemperatureInput) error
 	UpdateDisplaySwitch(ctx context.Context, input *modelsService.UpdateDisplaySwitchInput) error
 	UpdateMildewSwitch(ctx context.Context, input *modelsService.UpdateMildewSwitchInput) error
+	UpdateCleanSwitch(ctx context.Context, input *modelsService.UpdateCleanSwitchInput) error
+	UpdateHealthSwitch(ctx context.Context, input *modelsService.UpdateHealthSwitchInput) error
 
 	UpdateDeviceAvailability(ctx context.Context, input *modelsService.UpdateDeviceAvailabilityInput) error
 
@@ -77,6 +83,8 @@ type Cache interface {
 	UpsertMqttTemperatureMessage(ctx context.Context, input *modelsCache.UpsertMqttTemperatureMessageInput) error
 	UpsertMqttDisplaySwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttDisplaySwitchMessageInput) error
 	UpsertMqttMildewSwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttMildewSwitchMessageInput) error
+	UpsertMqttCleanSwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttCleanSwitchMessageInput) error
+	UpsertMqttHealthSwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttHealthSwitchMessageInput) error
 
 	ReadMqttMessage(ctx context.Context, input *modelsCache.ReadMqttMessageInput) (*modelsCache.ReadMqttMessageReturn, error)
 

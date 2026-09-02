@@ -597,6 +597,44 @@ func (s *service) GetDeviceStates(ctx context.Context, input *models.GetDeviceSt
 		return nil
 	})
 
+	g.Go(func() error {
+		if readDeviceStatusRawReturn == nil ||
+			readDeviceStatusRawReturn.Status.Clean != raw.Clean {
+			publishCleanSwitchInput := &modelsMqtt.PublishCleanSwitchInput{
+				Mac:    input.Mac,
+				Status: deviceStatusHA.CleanSwitch,
+			}
+
+			err = s.mqtt.PublishCleanSwitch(gCtx, publishCleanSwitchInput)
+			if err != nil {
+				s.logger.ErrorContext(gCtx, "failed to publish the clean switch status",
+					slog.Any("err", err),
+					slog.Any("input", publishCleanSwitchInput))
+				return err
+			}
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if readDeviceStatusRawReturn == nil ||
+			readDeviceStatusRawReturn.Status.Health != raw.Health {
+			publishHealthSwitchInput := &modelsMqtt.PublishHealthSwitchInput{
+				Mac:    input.Mac,
+				Status: deviceStatusHA.HealthSwitch,
+			}
+
+			err = s.mqtt.PublishHealthSwitch(gCtx, publishHealthSwitchInput)
+			if err != nil {
+				s.logger.ErrorContext(gCtx, "failed to publish the health switch status",
+					slog.Any("err", err),
+					slog.Any("input", publishHealthSwitchInput))
+				return err
+			}
+		}
+		return nil
+	})
+
 	// Wait for all HTTP fetches to complete.
 	if err = g.Wait(); err != nil {
 		return err
@@ -762,7 +800,7 @@ func (s *service) PublishDiscoveryTopic(ctx context.Context, input *models.Publi
 	device := modelsMqtt.DiscoveryTopicDevice{
 		Model: "AirCon",
 		Mf:    "broadlink",
-		Sw:    "v1.5.7",
+		Sw:    "v1.5.8",
 		Ids:   input.Device.Mac,
 		Name:  input.Device.Name,
 	}
@@ -838,7 +876,43 @@ func (s *service) PublishDiscoveryTopic(ctx context.Context, input *models.Publi
 		},
 	}
 
-	return s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchMildewDiscoveryTopicInput)
+	err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchMildewDiscoveryTopicInput)
+	if err != nil {
+		return err
+	}
+
+	publishSwitchCleanDiscoveryTopicInput := modelsMqtt.PublishSwitchDiscoveryTopicInput{
+		Topic: modelsMqtt.SwitchDiscoveryTopic{
+			Device:       device,
+			Name:         "Clean",
+			UniqueId:     input.Device.Mac + "_clean",
+			StateTopic:   prefix + "/clean/switch/value",
+			CommandTopic: prefix + "/clean/switch/set",
+			Availability: availability,
+			Icon:         "mdi:shimmer",
+		},
+	}
+
+	err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchCleanDiscoveryTopicInput)
+	if err != nil {
+		return err
+	}
+
+	enabledByDefaultFalse := false
+	publishSwitchHealthDiscoveryTopicInput := modelsMqtt.PublishSwitchDiscoveryTopicInput{
+		Topic: modelsMqtt.SwitchDiscoveryTopic{
+			Device:           device,
+			Name:             "Health",
+			UniqueId:         input.Device.Mac + "_health",
+			StateTopic:       prefix + "/health/switch/value",
+			CommandTopic:     prefix + "/health/switch/set",
+			Availability:     availability,
+			Icon:             "mdi:air-purifier",
+			EnabledByDefault: &enabledByDefaultFalse,
+		},
+	}
+
+	return s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchHealthDiscoveryTopicInput)
 }
 
 func (s *service) UpdateFanMode(ctx context.Context, input *models.UpdateFanModeInput) error {
@@ -1079,6 +1153,68 @@ func (s *service) UpdateMildewSwitch(ctx context.Context, input *models.UpdateMi
 	return nil
 }
 
+func (s *service) UpdateCleanSwitch(ctx context.Context, input *models.UpdateCleanSwitchInput) error {
+	err := input.Validate()
+	if err != nil {
+		s.logger.ErrorContext(ctx, "input data is not valid",
+			slog.Any("err", err),
+			slog.String("device", input.Mac),
+			slog.Any("input", input))
+		return err
+	}
+
+	upsertCleanSwitchMessageInput := &modelsRepo.UpsertMqttCleanSwitchMessageInput{
+		Mac: input.Mac,
+		CleanSwitch: modelsRepo.MqttCleanSwitchMessage{
+			UpdatedAt: time.Now(),
+			IsCleanOn: input.Status == "ON",
+		},
+	}
+
+	err = s.cache.UpsertMqttCleanSwitchMessage(ctx, upsertCleanSwitchMessageInput)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to save mqtt message to cache storage",
+			slog.Any("err", err),
+			slog.String("device", input.Mac),
+			slog.Any("input", upsertCleanSwitchMessageInput))
+		return err
+	}
+	s.wakeMonitor(input.Mac)
+
+	return nil
+}
+
+func (s *service) UpdateHealthSwitch(ctx context.Context, input *models.UpdateHealthSwitchInput) error {
+	err := input.Validate()
+	if err != nil {
+		s.logger.ErrorContext(ctx, "input data is not valid",
+			slog.Any("err", err),
+			slog.String("device", input.Mac),
+			slog.Any("input", input))
+		return err
+	}
+
+	upsertHealthSwitchMessageInput := &modelsRepo.UpsertMqttHealthSwitchMessageInput{
+		Mac: input.Mac,
+		HealthSwitch: modelsRepo.MqttHealthSwitchMessage{
+			UpdatedAt:  time.Now(),
+			IsHealthOn: input.Status == "ON",
+		},
+	}
+
+	err = s.cache.UpsertMqttHealthSwitchMessage(ctx, upsertHealthSwitchMessageInput)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to save mqtt message to cache storage",
+			slog.Any("err", err),
+			slog.String("device", input.Mac),
+			slog.Any("input", upsertHealthSwitchMessageInput))
+		return err
+	}
+	s.wakeMonitor(input.Mac)
+
+	return nil
+}
+
 func (s *service) UpdateDeviceStates(ctx context.Context, input *models.UpdateDeviceStatesInput) error {
 	readDeviceStatusRawInput := &modelsRepo.ReadDeviceStatusRawInput{
 		Mac: input.Mac,
@@ -1168,9 +1304,25 @@ func (s *service) UpdateDeviceStates(ctx context.Context, input *models.UpdateDe
 	// MILDEW
 	var mildew byte
 	if input.IsMildewOn != nil {
-		mildew = models.HassMildewToByte(*input.IsMildewOn)
+		mildew = models.HassOnOffToByte(*input.IsMildewOn)
 	} else {
 		mildew = readDeviceStatusRawReturn.Status.Mildew
+	}
+
+	// CLEAN
+	var clean byte
+	if input.IsCleanOn != nil {
+		clean = models.HassOnOffToByte(*input.IsCleanOn)
+	} else {
+		clean = readDeviceStatusRawReturn.Status.Clean
+	}
+
+	// HEALTH
+	var health byte
+	if input.IsHealthOn != nil {
+		health = models.HassOnOffToByte(*input.IsHealthOn)
+	} else {
+		health = readDeviceStatusRawReturn.Status.Health
 	}
 
 	// DISPLAY
@@ -1236,7 +1388,7 @@ func (s *service) UpdateDeviceStates(ctx context.Context, input *models.UpdateDe
 	payload[15] = 0b00000000 | mode<<5 | readDeviceStatusRawReturn.Status.Sleep<<2
 	payload[16] = 0b00000000
 	payload[17] = 0x00
-	payload[18] = 0b00000000 | power<<5 | readDeviceStatusRawReturn.Status.Health<<1 | readDeviceStatusRawReturn.Status.Clean<<2
+	payload[18] = 0b00000000 | power<<5 | health<<1 | clean<<2
 	payload[19] = 0x00
 	payload[20] = 0b00000000 | displaySwitch<<4 | mildew<<3
 	payload[21] = 0b00000000

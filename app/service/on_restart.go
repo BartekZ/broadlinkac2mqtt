@@ -185,6 +185,30 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 					slog.Any("input", publishMildewSwitchInput))
 				return err
 			}
+
+			publishCleanSwitchInput := &modelsMqtt.PublishCleanSwitchInput{
+				Mac:    mac,
+				Status: hassStatus.CleanSwitch,
+			}
+			err = s.mqtt.PublishCleanSwitch(gCtx, publishCleanSwitchInput)
+			if err != nil {
+				s.logger.ErrorContext(gCtx, "failed to publish the clean switch status",
+					slog.Any("err", err),
+					slog.Any("input", publishCleanSwitchInput))
+				return err
+			}
+
+			publishHealthSwitchInput := &modelsMqtt.PublishHealthSwitchInput{
+				Mac:    mac,
+				Status: hassStatus.HealthSwitch,
+			}
+			err = s.mqtt.PublishHealthSwitch(gCtx, publishHealthSwitchInput)
+			if err != nil {
+				s.logger.ErrorContext(gCtx, "failed to publish the health switch status",
+					slog.Any("err", err),
+					slog.Any("input", publishHealthSwitchInput))
+				return err
+			}
 			return nil
 		})
 	}

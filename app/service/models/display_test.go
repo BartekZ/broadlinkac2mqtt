@@ -85,3 +85,15 @@ func TestConvertToDeviceStatusHAMildew(t *testing.T) {
 		t.Fatalf("MildewSwitch = %q, want ON", got)
 	}
 }
+
+func TestOnOffByteToHassCleanHealth(t *testing.T) {
+	if got := (DeviceStatusRaw{Clean: 0, Health: 1}).ConvertToDeviceStatusHA(false); got.CleanSwitch != "OFF" || got.HealthSwitch != "ON" {
+		t.Fatalf("CleanSwitch=%q HealthSwitch=%q, want OFF/ON", got.CleanSwitch, got.HealthSwitch)
+	}
+	if got := HassOnOffToByte(true); got != 1 {
+		t.Fatalf("HassOnOffToByte(true) = %d, want 1", got)
+	}
+	if got := HassOnOffToByte(false); got != 0 {
+		t.Fatalf("HassOnOffToByte(false) = %d, want 0", got)
+	}
+}

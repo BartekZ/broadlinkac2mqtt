@@ -12,4 +12,6 @@ var (
 	ErrorInvalidParameterMode          = errors.New("ErrorInvalidParameterMode")
 	ErrorInvalidParameterDisplayStatus = errors.New("ErrorInvalidParameterDisplayStatus")
 	ErrorInvalidParameterMildewStatus  = errors.New("ErrorInvalidParameterMildewStatus")
+	ErrorInvalidParameterCleanStatus   = errors.New("ErrorInvalidParameterCleanStatus")
+	ErrorInvalidParameterHealthStatus  = errors.New("ErrorInvalidParameterHealthStatus")
 )
