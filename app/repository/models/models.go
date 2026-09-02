@@ -5,11 +5,23 @@ import (
 )
 
 type Device struct {
-	Config          DeviceConfig
-	Auth            *DeviceAuth
-	DeviceStatus    DeviceStatus
-	DeviceStatusRaw *DeviceStatusRaw
-	MqttLastMessage MqttStatus
+	Config           DeviceConfig
+	Auth             *DeviceAuth
+	DeviceStatus     DeviceStatus
+	DeviceStatusRaw  *DeviceStatusRaw
+	DeviceStatusHass *DeviceStatusHass
+	MqttLastMessage  MqttStatus
+}
+
+type DeviceStatusHass struct {
+	FanMode       string
+	SwingMode     string
+	Mode          string
+	Temperature   float32
+	DisplaySwitch string
+	MildewSwitch  string
+	CleanSwitch   string
+	HealthSwitch  string
 }
 
 type DeviceConfig struct {
@@ -19,6 +31,13 @@ type DeviceConfig struct {
 	Port            uint16
 	TemperatureUnit string
 	InvertDisplay   bool
+	Backend         string
+	CloudEndpointID string
+	CloudProductID  string
+}
+
+func (c DeviceConfig) IsCloud() bool {
+	return c.Backend == "cloud"
 }
 
 type DeviceAuth struct {
@@ -112,6 +131,19 @@ type ReadDeviceStatusRawReturn struct {
 type UpsertDeviceStatusRawInput struct {
 	Mac    string
 	Status DeviceStatusRaw
+}
+
+type ReadDeviceStatusHassInput struct {
+	Mac string
+}
+
+type ReadDeviceStatusHassReturn struct {
+	Status DeviceStatusHass
+}
+
+type UpsertDeviceStatusHassInput struct {
+	Mac    string
+	Status DeviceStatusHass
 }
 
 type MqttModeMessage struct {

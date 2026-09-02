@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	modelsMqtt "github.com/ArtemVladimirov/broadlinkac2mqtt/app/mqtt/models"
 	modelsCache "github.com/ArtemVladimirov/broadlinkac2mqtt/app/repository/models"
@@ -64,6 +65,15 @@ type WebClient interface {
 	SendCommand(ctx context.Context, input *modelsWeb.SendCommandInput) (*modelsWeb.SendCommandReturn, error)
 }
 
+type DeviceBackend interface {
+	Authenticate(ctx context.Context, mac string) error
+	ReadState(ctx context.Context, mac string) (*modelsService.DeviceState, error)
+	ReadAmbient(ctx context.Context, mac string) (*float32, error)
+	ApplyState(ctx context.Context, mac string, input *modelsService.UpdateDeviceStatesInput) error
+	Capabilities(ctx context.Context, mac string) modelsService.DeviceCapabilities
+	MinRequestGap() time.Duration
+}
+
 type Cache interface {
 	UpsertDeviceConfig(ctx context.Context, input *modelsCache.UpsertDeviceConfigInput) error
 	ReadDeviceConfig(ctx context.Context, input *modelsCache.ReadDeviceConfigInput) (*modelsCache.ReadDeviceConfigReturn, error)
@@ -76,6 +86,9 @@ type Cache interface {
 
 	UpsertDeviceStatusRaw(ctx context.Context, input *modelsCache.UpsertDeviceStatusRawInput) error
 	ReadDeviceStatusRaw(ctx context.Context, input *modelsCache.ReadDeviceStatusRawInput) (*modelsCache.ReadDeviceStatusRawReturn, error)
+
+	UpsertDeviceStatusHass(ctx context.Context, input *modelsCache.UpsertDeviceStatusHassInput) error
+	ReadDeviceStatusHass(ctx context.Context, input *modelsCache.ReadDeviceStatusHassInput) (*modelsCache.ReadDeviceStatusHassReturn, error)
 
 	UpsertMqttModeMessage(ctx context.Context, input *modelsCache.UpsertMqttModeMessageInput) error
 	UpsertMqttSwingModeMessage(ctx context.Context, input *modelsCache.UpsertMqttSwingModeMessageInput) error

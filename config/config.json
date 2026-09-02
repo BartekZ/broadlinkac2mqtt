@@ -20,5 +20,14 @@
       "port": 80,
       "temperature_unit": "C"
     }
-  ]
+  ],
+  "cloud": {
+    "enabled": false,
+    "email": "",
+    "password": "",
+    "region": "eu",
+    "auto_discover": true,
+    "hidden_devices": [],
+    "temperature_unit": "C"
+  }
 }

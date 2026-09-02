@@ -5,12 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/ArtemVladimirov/broadlinkac2mqtt/app"
+	"github.com/ArtemVladimirov/broadlinkac2mqtt/app/auxcloud"
 	"github.com/ArtemVladimirov/broadlinkac2mqtt/app/mqtt"
 	workspaceMqttModels "github.com/ArtemVladimirov/broadlinkac2mqtt/app/mqtt/models"
 	workspaceMqttSender "github.com/ArtemVladimirov/broadlinkac2mqtt/app/mqtt/publisher"
@@ -66,6 +66,23 @@ func NewApp() (*App, error) {
 
 	client := paho.NewClient(opts)
 
+	var cloudBackend app.DeviceBackend
+	var cloudClient *auxcloud.Client
+	if cfg.Cloud.Enabled {
+		cloudClient, err = auxcloud.NewClient(auxcloud.Config{
+			Email:    cfg.Cloud.Email,
+			Password: cfg.Cloud.Password,
+			Region:   cfg.Cloud.Region,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if err = cloudClient.Login(context.Background()); err != nil {
+			return nil, err
+		}
+		cloudBackend = auxcloud.NewBackend(cloudClient)
+	}
+
 	// Configure MQTT Sender Layer
 	mqttSender := workspaceMqttSender.NewMqttSender(
 		mqttConfig,
@@ -79,6 +96,7 @@ func NewApp() (*App, error) {
 		mqttSender,
 		workspaceWebClient.NewWebClient(),
 		workspaceCache.NewCache(),
+		cloudBackend,
 	)
 	// Configure MQTT Receiver Layer
 	mqttReceiver := workspaceMqttReceiver.NewMqttReceiver(
@@ -86,28 +104,9 @@ func NewApp() (*App, error) {
 		mqttConfig,
 	)
 
-	devices := make([]workspaceServiceModels.DeviceConfig, 0, len(cfg.Devices))
-	for _, device := range cfg.Devices {
-		if len(device.TemperatureUnit) == 0 {
-			device.TemperatureUnit = "C"
-		}
-
-		dev := workspaceServiceModels.DeviceConfig{
-			Ip:              device.Ip,
-			Mac:             strings.ToLower(device.Mac),
-			Name:            device.Name,
-			Port:            device.Port,
-			TemperatureUnit: strings.ToUpper(device.TemperatureUnit),
-			InvertDisplay:   device.InvertDisplay,
-		}
-
-		err = dev.Validate()
-		if err != nil {
-			slog.Error("device config is incorrect", slog.String("device", device.Mac), slog.Any("err", err))
-			return nil, err
-		}
-
-		devices = append(devices, dev)
+	devices, err := loadDevices(context.Background(), cfg, cloudClient)
+	if err != nil {
+		return nil, err
 	}
 
 	application := &App{
@@ -155,6 +154,9 @@ func (app *App) Run(ctx context.Context) error {
 				Port:            device.Port,
 				TemperatureUnit: device.TemperatureUnit,
 				InvertDisplay:   device.InvertDisplay,
+				Backend:         device.Backend,
+				CloudEndpointID: device.CloudEndpointID,
+				CloudProductID:  device.CloudProductID,
 			}})
 		if err != nil {
 			slog.ErrorContext(ctx, "failed to create the device",

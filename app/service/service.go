@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"math/rand"
-	"strconv"
 	"sync"
 	"time"
 
@@ -13,799 +11,140 @@ import (
 	modelsMqtt "github.com/ArtemVladimirov/broadlinkac2mqtt/app/mqtt/models"
 	modelsRepo "github.com/ArtemVladimirov/broadlinkac2mqtt/app/repository/models"
 	"github.com/ArtemVladimirov/broadlinkac2mqtt/app/service/models"
-	modelsWeb "github.com/ArtemVladimirov/broadlinkac2mqtt/app/webClient/models"
-	"github.com/ArtemVladimirov/broadlinkac2mqtt/pkg/coder"
 	"github.com/ArtemVladimirov/broadlinkac2mqtt/pkg/converter"
-	"golang.org/x/sync/errgroup"
 )
 
 type service struct {
 	updateInterval int
 	topicPrefix    string
 	mqtt           app.MqttPublisher
-	webClient      app.WebClient
 	cache          app.Cache
+	localBackend   app.DeviceBackend
+	cloudBackend   app.DeviceBackend
 	commandNotify  sync.Map // mac -> chan struct{}
 }
 
-func NewService(topicPrefix string, updateInterval int, mqtt app.MqttPublisher, webClient app.WebClient, cache app.Cache) app.Service {
+func NewService(topicPrefix string, updateInterval int, mqtt app.MqttPublisher, webClient app.WebClient, cache app.Cache, cloudBackend app.DeviceBackend) app.Service {
 	return &service{
 		topicPrefix:    topicPrefix,
 		updateInterval: updateInterval,
 		mqtt:           mqtt,
-		webClient:      webClient,
 		cache:          cache,
+		localBackend:   NewLocalBackend(webClient, cache),
+		cloudBackend:   cloudBackend,
 	}
+}
+
+func (s *service) backendFor(ctx context.Context, mac string) (app.DeviceBackend, error) {
+	readDeviceConfigReturn, err := s.cache.ReadDeviceConfig(ctx, &modelsRepo.ReadDeviceConfigInput{Mac: mac})
+	if err != nil {
+		return nil, err
+	}
+	if readDeviceConfigReturn.Config.IsCloud() {
+		if s.cloudBackend == nil {
+			return nil, errors.New("cloud backend is not configured")
+		}
+		return s.cloudBackend, nil
+	}
+	return s.localBackend, nil
+}
+
+func (s *service) capabilities(ctx context.Context, mac string) models.DeviceCapabilities {
+	backend, err := s.backendFor(ctx, mac)
+	if err != nil {
+		return models.DefaultLocalCapabilities()
+	}
+	return backend.Capabilities(ctx, mac)
 }
 
 func (s *service) CreateDevice(ctx context.Context, input *models.CreateDeviceInput) error {
-	key := []byte{0x09, 0x76, 0x28, 0x34, 0x3f, 0xe9, 0x9e, 0x23, 0x76, 0x5c, 0x15, 0x13, 0xac, 0xcf, 0x8b, 0x02}
-	iv := []byte{0x56, 0x2e, 0x17, 0x99, 0x6d, 0x09, 0x3d, 0x28, 0xdd, 0xb3, 0xba, 0x69, 0x5a, 0x2e, 0x6f, 0x58}
+	if input.Config.Backend == "" {
+		input.Config.Backend = models.BackendLocal
+	}
 
-	// Store device information in the repository
-	upsertDeviceConfigInput := &modelsRepo.UpsertDeviceConfigInput{
+	err := s.cache.UpsertDeviceConfig(ctx, &modelsRepo.UpsertDeviceConfigInput{
 		Config: modelsRepo.DeviceConfig(input.Config),
-	}
-	err := s.cache.UpsertDeviceConfig(ctx, upsertDeviceConfigInput)
+	})
 	if err != nil {
 		return err
 	}
 
-	auth := modelsRepo.DeviceAuth{
-		LastMessageId: rand.Intn(0xffff), //nolint:gosec // protocol sequence number, not a secret
-		DevType:       0x4E2a,
-		Id:            [4]byte{0, 0, 0, 0},
-		Key:           key,
-		Iv:            iv,
+	if input.Config.IsCloud() {
+		return nil
 	}
 
-	// Store device information in the repository
-	upsertDeviceAuthInput := &modelsRepo.UpsertDeviceAuthInput{
-		Mac:  input.Config.Mac,
-		Auth: auth,
+	local, ok := s.localBackend.(*localBackend)
+	if !ok {
+		return errors.New("local backend is not available")
 	}
-	err = s.cache.UpsertDeviceAuth(ctx, upsertDeviceAuthInput)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return local.Create(ctx, input.Config.Mac)
 }
 
-/*
-AuthDevice
-
-	Request
-
-0000   34 ea 34 da da c8 e0 d5 5e 68 9e 3e 08 00 45 00
-0010   00 a4 16 d4 00 00 80 11 00 00 c0 a8 01 24 c0 a8
-0020   01 13 f9 a1 00 50 00 90 84 29 5a a5 aa 55 5a a5
-0030   aa 55 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-0040   00 00 00 00 00 00 00 00 00 00 de f0 00 00 2a 4e
-0050   65 00 63 f7 34 ea 34 da da c8 00 00 00 00 a1 c3
-0060   00 00 45 34 52 e7 f9 2e da 95 83 44 93 08 35 ef
-0070   9a 6d fb 69 2d c3 70 b9 04 43 ac 5c d6 3f bb 53
-0080   ad fa 08 81 4c a7 f8 cf 41 71 00 32 8e 57 0c 3b
-0090   86 c9 4d 05 70 84 49 a3 89 e2 9a e1 04 54 36 a0
-00a0   5b dd dc 02 c1 61 af 13 25 e8 7e 19 b0 f7 d1 ce
-00b0   06 8d
-
-	Response
-
-0000   e0 d5 5e 68 9e 3e 34 ea 34 da da c8 08 00 45 00
-0010   00 74 56 1e 00 00 40 11 a0 d3 c0 a8 01 13 c0 a8
-0020   01 24 00 50 f9 a1 00 60 18 82 5a a5 aa 55 5a a5
-0030   aa 55 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-0040   00 00 00 00 00 00 00 00 00 00 28 dc 00 00 2a 4e
-0050   e9 03 63 f7 34 ea 34 da da c8 00 00 00 00 c1 c7
-0060   00 00 bb 6c bb bb 34 58 5c d4 42 b9 cf bb db 30
-0070   3e ea 55 af e0 62 cd d6 38 16 4b 81 cc 38 40 84
-0080   ef 9e
-*/
 func (s *service) AuthDevice(ctx context.Context, input *models.AuthDeviceInput) error {
-	payload := [0x50]byte{}
-	payload[0x04] = 0x31
-	payload[0x05] = 0x31
-	payload[0x06] = 0x31
-	payload[0x07] = 0x31
-	payload[0x08] = 0x31
-	payload[0x09] = 0x31
-	payload[0x0a] = 0x31
-	payload[0x0b] = 0x31
-	payload[0x0c] = 0x31
-	payload[0x0d] = 0x31
-	payload[0x0e] = 0x31
-	payload[0x0f] = 0x31
-	payload[0x10] = 0x31
-	payload[0x11] = 0x31
-	payload[0x12] = 0x31
-	payload[0x1e] = 0x01
-	payload[0x2d] = 0x01
-	payload[0x30] = byte('T')
-	payload[0x31] = byte('e')
-	payload[0x32] = byte('s')
-	payload[0x33] = byte('t')
-	payload[0x34] = byte(' ')
-	payload[0x35] = byte(' ')
-	payload[0x36] = byte('1')
-
-	sendCommandInput := &models.SendCommandInput{
-		Command: 0x65,
-		Payload: payload[:],
-		Mac:     input.Mac,
-	}
-	response, err := s.sendCommand(ctx, sendCommandInput)
+	backend, err := s.backendFor(ctx, input.Mac)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to send command", slog.Any("err", err), slog.Any("input", input))
+		slog.ErrorContext(ctx, "failed to select device backend", slog.Any("err", err), slog.String("device", input.Mac))
 		return err
 	}
-
-	// Decode message
-	if len(response.Payload) >= 0x38 {
-		response.Payload = response.Payload[0x38:]
-	} else {
-		const msg = "response is too short"
-		slog.ErrorContext(ctx, msg, slog.Any("input", input), slog.Any("payload", response.Payload))
-		return errors.New(msg)
-	}
-
-	// Read the saved value in repo if no
-	readDeviceAuthInput := &modelsRepo.ReadDeviceAuthInput{
-		Mac: input.Mac,
-	}
-	readDeviceAuthReturn, err := s.cache.ReadDeviceAuth(ctx, readDeviceAuthInput)
-	if err != nil {
-		slog.ErrorContext(ctx, "device not found", slog.Any("err", err), slog.Any("input", input))
-		return err
-	}
-	auth := readDeviceAuthReturn.Auth
-
-	response.Payload, err = coder.Decrypt(auth.Key, auth.Iv, response.Payload)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to decode response", slog.Any("err", err), slog.Any("input", input))
-		return err
-	}
-
-	auth = modelsRepo.DeviceAuth{
-		LastMessageId: auth.LastMessageId,
-		DevType:       auth.DevType,
-		Id:            [4]byte{response.Payload[0], response.Payload[1], response.Payload[2], response.Payload[3]},
-		Key:           response.Payload[0x04:0x14],
-		Iv:            auth.Iv,
-	}
-
-	// Update the last message id in the cache
-	upsertDeviceAuthInput := &modelsRepo.UpsertDeviceAuthInput{
-		Mac:  input.Mac,
-		Auth: auth,
-	}
-	return s.cache.UpsertDeviceAuth(ctx, upsertDeviceAuthInput)
+	return backend.Authenticate(ctx, input.Mac)
 }
 
-/*
-GetDeviceAmbientTemperature
-
-	Request
-
-0000   34 ea 34 da da c8 e0 d5 5e 68 9e 3e 08 00 45 00
-0010   00 64 16 d6 00 00 80 11 00 00 c0 a8 01 24 c0 a8
-0020   01 13 e0 dc 00 50 00 50 83 e9// 5a a5 aa 55 5a a5
-0030   aa 55 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-0040   00 00 00 00 00 00 00 00 00 00 a1 d1 00 00 2a 4e
-0050   6a 00 90 7c 34 ea 34 da da c8 01 00 00 00 b9 c0
-0060   00 00 3d 19 77 32 16 2c b4 f5 f9 e1 8a ca 7b 1b
-0070   ff 13
-
-	Response
-
-0000   e0 d5 5e 68 9e 3e 34 ea 34 da da c8 08 00 45 00
-0010   00 84 56 ab 00 00 40 11 a0 36 c0 a8 01 13 c0 a8
-0020   01 24 00 50 e0 dc 00 70 08 12 5a a5 aa 55 5a a5
-0030   aa 55 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-0040   00 00 00 00 00 00 00 00 00 00 40 e3 00 00 2a 4e
-0050   ee 03 90 7c 34 ea 34 da da c8 01 00 00 00 cf c1
-0060   00 00 2c 4f a6 c5 65 f7 8b 46 82 92 20 a3 6f bf
-0070   65 24 a6 8a 04 97 eb 37 ef e6 a6 42 2a 4f 6b 8a
-0080   ed 81 d1 67 c3 8d b2 69 c5 0a e4 e2 91 05 bc 52
-0090   5e 60
-*/
-func (s *service) getDeviceAmbientTemperature(ctx context.Context, input *models.GetDeviceAmbientTemperatureInput) error {
-	sendCommandInput := &models.SendCommandInput{
-		Command: 0x6a,
-		Payload: []byte{12, 0, 187, 0, 6, 128, 0, 0, 2, 0, 33, 1, 27, 126, 0, 0},
-		Mac:     input.Mac,
-	}
-	response, err := s.sendCommand(ctx, sendCommandInput)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to send a command", slog.Any("err", err), slog.Any("input", sendCommandInput))
-		return err
-	}
-
-	if uint16(response.Payload[0x22])|(uint16(response.Payload[0x23])<<8) != 0 {
-		slog.ErrorContext(ctx, "Checksum is incorrect", slog.Any("input", sendCommandInput))
-		return models.ErrorInvalidResultPacket
-	}
-
-	// Decode message
-	if len(response.Payload) >= 0x38 {
-		response.Payload = response.Payload[0x38:]
-	} else {
-		slog.ErrorContext(ctx, "response is too short", slog.Any("input", sendCommandInput))
-		return models.ErrorInvalidResultPacketLength
-	}
-
-	// Read the saved value in repo if no
-	readDeviceAuthInput := &modelsRepo.ReadDeviceAuthInput{
-		Mac: input.Mac,
-	}
-	readDeviceAuthReturn, err := s.cache.ReadDeviceAuth(ctx, readDeviceAuthInput)
-	if err != nil {
-		slog.ErrorContext(ctx, "device not found", slog.Any("err", err), slog.Any("input", readDeviceAuthInput))
-		return err
-	}
-
-	response.Payload, err = coder.Decrypt(readDeviceAuthReturn.Auth.Key, readDeviceAuthReturn.Auth.Iv, response.Payload)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to decrypt response", slog.Any("err", err), slog.Any("input", response.Payload))
-		return err
-	}
-
-	// Drop leading stuff as don't need
-	response.Payload = response.Payload[2:]
-
-	if len(response.Payload) < 40 {
-		return models.ErrorInvalidResultPacketLength
-	}
-
-	ambientTemp := float32(response.Payload[15]-0b00100000) + (float32(response.Payload[31]) / 10)
-
-	readAmbientTempInput := &modelsRepo.ReadAmbientTempInput{Mac: input.Mac}
-	readAmbientTempReturn, err := s.cache.ReadAmbientTemp(ctx, readAmbientTempInput)
-	if err != nil && !errors.Is(err, modelsRepo.ErrorDeviceStatusAmbientTempNotFound) {
-		slog.ErrorContext(ctx, "failed to read the ambient temperature",
-			slog.Any("err", err),
-			slog.Any("input", readAmbientTempInput))
-		return err
-	}
-
-	if readAmbientTempReturn != nil {
-		// Sometimes there is strange temperature
-		if readAmbientTempReturn.Temperature-ambientTemp > 4 || ambientTemp-readAmbientTempReturn.Temperature > 4 {
-			slog.ErrorContext(ctx, "failed to read the ambient temperature", slog.Any("input", readAmbientTempInput))
-			return models.ErrorInvalidParameterTemperature
-		}
-	}
-
-	slog.DebugContext(ctx, "Ambient temperature",
-		slog.Any("ambientTemp", ambientTemp),
-		slog.String("device", input.Mac))
-
-	if readAmbientTempReturn == nil || readAmbientTempReturn.Temperature != ambientTemp {
-		readDeviceConfigInput := &modelsRepo.ReadDeviceConfigInput{
-			Mac: input.Mac,
-		}
-		readDeviceConfigReturn, err := s.cache.ReadDeviceConfig(ctx, readDeviceConfigInput)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to read device config",
-				slog.Any("err", err),
-				slog.String("device", input.Mac),
-				slog.Any("input", readDeviceConfigInput))
-			return err
-		}
-
-		// Sent  temperature to MQTT
-		publishAmbientTempInput := &modelsMqtt.PublishAmbientTempInput{
-			Mac:         input.Mac,
-			Temperature: converter.Temperature(models.Celsius, readDeviceConfigReturn.Config.TemperatureUnit, ambientTemp),
-		}
-		err = s.mqtt.PublishAmbientTemp(ctx, publishAmbientTempInput)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to publish ambient temperature",
-				slog.Any("input", publishAmbientTempInput),
-				slog.Any("err", err))
-			return err
-		}
-
-		// Save the new value in storage
-		upsertAmbientTempInput := &modelsRepo.UpsertAmbientTempInput{Temperature: ambientTemp, Mac: input.Mac}
-		err = s.cache.UpsertAmbientTemp(ctx, upsertAmbientTempInput)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to upsert the temperature",
-				slog.Any("input", upsertAmbientTempInput),
-				slog.Any("err", err))
-			return err
-		}
-	}
-
-	return nil
-}
-
-// GetDeviceStates returns devices states
 func (s *service) GetDeviceStates(ctx context.Context, input *models.GetDeviceStatesInput) error {
-	sendCommandInput := &models.SendCommandInput{
-		Command: 0x6a,
-		Payload: []byte{12, 0, 187, 0, 6, 128, 0, 0, 2, 0, 17, 1, 43, 126, 0, 0},
-		Mac:     input.Mac,
-	}
-
-	response, err := s.sendCommand(ctx, sendCommandInput)
+	backend, err := s.backendFor(ctx, input.Mac)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to send the command to get states",
-			slog.Any("input", sendCommandInput),
-			slog.Any("err", err))
+		slog.ErrorContext(ctx, "failed to select device backend", slog.Any("err", err), slog.String("device", input.Mac))
 		return err
 	}
 
-	////////////////////////////////////////////////////////////
-	//                 DECODE RESPONSE                        //
-	////////////////////////////////////////////////////////////
-
-	if uint16(response.Payload[0x22])|(uint16(response.Payload[0x23])<<8) != 0 {
-		slog.ErrorContext(ctx, "Checksum is incorrect",
-			slog.Any("input", response.Payload))
-		return models.ErrorInvalidResultPacket
-	}
-
-	// Read the saved value in repo if no
-	readDeviceAuthInput := &modelsRepo.ReadDeviceAuthInput{
-		Mac: input.Mac,
-	}
-	readDeviceAuthReturn, err := s.cache.ReadDeviceAuth(ctx, readDeviceAuthInput)
+	state, err := backend.ReadState(ctx, input.Mac)
 	if err != nil {
-		slog.ErrorContext(ctx, "device not found",
-			slog.Any("input", readDeviceAuthInput),
-			slog.String("device", input.Mac),
-			slog.Any("err", err))
 		return err
 	}
 
-	// Decode message
-	if len(response.Payload) >= 0x38 {
-		response.Payload = response.Payload[0x38:]
-	} else {
-		slog.ErrorContext(ctx, "response is too short",
-			slog.String("device", input.Mac),
-			slog.Any("input", response.Payload))
-		return models.ErrorInvalidResultPacketLength
-	}
-
-	response.Payload, err = coder.Decrypt(readDeviceAuthReturn.Auth.Key, readDeviceAuthReturn.Auth.Iv, response.Payload)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to decrypt the response",
-			slog.Any("input", response.Payload),
-			slog.String("device", input.Mac),
-			slog.Any("err", err))
-		return err
-	}
-
-	if response.Payload[4] != 0x07 {
-		slog.ErrorContext(ctx, "it is not a result packet",
-			slog.String("device", input.Mac),
-			slog.Any("input", response.Payload))
-		return models.ErrorInvalidResultPacket
-	}
-
-	if response.Payload[0] != 0x19 {
-		slog.ErrorContext(ctx, "the length of the packet is incorrect. Must be 25",
-			slog.String("device", input.Mac),
-			slog.Any("input", response.Payload))
-		return models.ErrorInvalidResultPacketLength
-	}
-
-	// Drop leading stuff as don't need
-	response.Payload = response.Payload[2:]
-
-	var raw = models.DeviceStatusRaw{
-		UpdatedAt:          time.Now(),
-		Temperature:        float32(8+(response.Payload[10]>>3)) + 0.5*float32(response.Payload[12]>>7),
-		Power:              response.Payload[18] >> 5 & 0b00000001,
-		FixationVertical:   response.Payload[10] & 0b00000111,
-		Mode:               response.Payload[15] >> 5 & 0b00001111,
-		Sleep:              response.Payload[15] >> 2 & 0b00000001,
-		Display:            response.Payload[20] >> 4 & 0b00000001,
-		Mildew:             response.Payload[20] >> 3 & 0b00000001,
-		Health:             response.Payload[18] >> 1 & 0b00000001,
-		FixationHorizontal: response.Payload[10] & 0b00000111,
-		FanSpeed:           response.Payload[13] >> 5 & 0b00000111,
-		IFeel:              response.Payload[15] >> 3 & 0b00000001,
-		Mute:               response.Payload[14] >> 7 & 0b00000001,
-		Turbo:              response.Payload[14] >> 6 & 0b00000001,
-		Clean:              response.Payload[18] >> 2 & 0b00000001,
-	}
-
-	if raw.Temperature < 16.0 {
-		slog.ErrorContext(ctx, "wrong temperature, skip package",
-			slog.String("device", input.Mac),
-			slog.Any("input", raw.Temperature))
-		return models.ErrorInvalidResultPacketLength
-	}
-
-	//////////////////////////////////////////////////////////////////
-	//  Compare new statuses with old statuses and update  MQTT     //
-	//////////////////////////////////////////////////////////////////
-
-	readDeviceStatusRawInput := &modelsRepo.ReadDeviceStatusRawInput{
-		Mac: input.Mac,
-	}
-
-	readDeviceStatusRawReturn, err := s.cache.ReadDeviceStatusRaw(ctx, readDeviceStatusRawInput)
-	if err != nil {
-		switch {
-		case errors.Is(err, modelsRepo.ErrorDeviceStatusRawNotFound):
-			err = nil
-		default:
-			slog.ErrorContext(ctx, "failed to read the device status",
-				slog.Any("err", err),
-				slog.Any("input", readDeviceStatusRawInput))
-			return err
-		}
-	}
-
-	readDeviceConfigInput := &modelsRepo.ReadDeviceConfigInput{
-		Mac: input.Mac,
-	}
-	readDeviceConfigReturn, err := s.cache.ReadDeviceConfig(ctx, readDeviceConfigInput)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to read device config",
-			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", readDeviceConfigInput))
-		return err
-	}
-
-	deviceStatusHA := raw.ConvertToDeviceStatusHA(readDeviceConfigReturn.Config.InvertDisplay)
-	slog.DebugContext(ctx, "The converted current device status",
-		slog.String("device", input.Mac),
-		slog.Any("status", deviceStatusHA),
-		slog.Int("fixationVertical", int(raw.FixationVertical)),
-		slog.Int("mute", int(raw.Mute)),
-		slog.Int("fanSpeed", int(raw.FanSpeed)))
-
-	g, gCtx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		if readDeviceStatusRawReturn == nil ||
-			readDeviceStatusRawReturn.Status.Temperature != raw.Temperature {
-
-			readDeviceConfigInput := &modelsRepo.ReadDeviceConfigInput{
-				Mac: input.Mac,
-			}
-
-			readDeviceConfigReturn, err := s.cache.ReadDeviceConfig(gCtx, readDeviceConfigInput)
-			if err != nil {
-				slog.ErrorContext(gCtx, "failed to read device config",
-					slog.Any("err", err),
-					slog.String("device", input.Mac),
-					slog.Any("input", readDeviceConfigInput))
-				return err
-			}
-
-			publishTemperatureInput := &modelsMqtt.PublishTemperatureInput{
-				Mac:         input.Mac,
-				Temperature: converter.Temperature(models.Celsius, readDeviceConfigReturn.Config.TemperatureUnit, deviceStatusHA.Temperature),
-			}
-
-			err = s.mqtt.PublishTemperature(gCtx, publishTemperatureInput)
-			if err != nil {
-				slog.ErrorContext(gCtx, "failed to publish the device set temperature",
-					slog.Any("err", err),
-					slog.Any("input", publishTemperatureInput))
-				return err
-			}
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		if readDeviceStatusRawReturn == nil ||
-			readDeviceStatusRawReturn.Status.Mode != raw.Mode ||
-			readDeviceStatusRawReturn.Status.Power != raw.Power {
-
-			publishModeInput := &modelsMqtt.PublishModeInput{
-				Mac:  input.Mac,
-				Mode: deviceStatusHA.Mode,
-			}
-			err = s.mqtt.PublishMode(gCtx, publishModeInput)
-			if err != nil {
-				slog.ErrorContext(ctx, "failed to publish the device mode",
-					slog.Any("err", err),
-					slog.Any("input", publishModeInput))
-				return err
-			}
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		if readDeviceStatusRawReturn == nil ||
-			readDeviceStatusRawReturn.Status.FanSpeed != raw.FanSpeed ||
-			readDeviceStatusRawReturn.Status.Mute != raw.Mute ||
-			readDeviceStatusRawReturn.Status.Turbo != raw.Turbo {
-
-			publishFanModeInput := &modelsMqtt.PublishFanModeInput{
-				Mac:     input.Mac,
-				FanMode: deviceStatusHA.FanMode,
-			}
-
-			err = s.mqtt.PublishFanMode(gCtx, publishFanModeInput)
-			if err != nil {
-				slog.ErrorContext(gCtx, "failed to publish the device fan mode",
-					slog.Any("err", err),
-					slog.Any("input", publishFanModeInput))
-				return err
-			}
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		if deviceStatusHA.SwingMode == "" {
-			slog.WarnContext(gCtx, "skip publishing empty swing mode",
-				slog.String("device", input.Mac),
-				slog.Int("fixationVertical", int(raw.FixationVertical)))
-			return nil
-		}
-		if readDeviceStatusRawReturn == nil ||
-			readDeviceStatusRawReturn.Status.FixationVertical != raw.FixationVertical {
-			publishSwingModeInput := &modelsMqtt.PublishSwingModeInput{
-				Mac:       input.Mac,
-				SwingMode: deviceStatusHA.SwingMode,
-			}
-
-			err = s.mqtt.PublishSwingMode(gCtx, publishSwingModeInput)
-			if err != nil {
-				slog.ErrorContext(gCtx, "failed to publish the device swing mode",
-					slog.Any("err", err),
-					slog.Any("input", publishSwingModeInput))
-				return err
-			}
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		if readDeviceStatusRawReturn == nil ||
-			readDeviceStatusRawReturn.Status.Display != raw.Display {
-			publishDisplaySwitchInput := &modelsMqtt.PublishDisplaySwitchInput{
-				Mac:    input.Mac,
-				Status: deviceStatusHA.DisplaySwitch,
-			}
-
-			err = s.mqtt.PublishDisplaySwitch(gCtx, publishDisplaySwitchInput)
-			if err != nil {
-				slog.ErrorContext(gCtx, "failed to publish the display switch status",
-					slog.Any("err", err),
-					slog.Any("input", publishDisplaySwitchInput))
-				return err
-			}
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		if readDeviceStatusRawReturn == nil ||
-			readDeviceStatusRawReturn.Status.Mildew != raw.Mildew {
-			publishMildewSwitchInput := &modelsMqtt.PublishMildewSwitchInput{
-				Mac:    input.Mac,
-				Status: deviceStatusHA.MildewSwitch,
-			}
-
-			err = s.mqtt.PublishMildewSwitch(gCtx, publishMildewSwitchInput)
-			if err != nil {
-				slog.ErrorContext(gCtx, "failed to publish the mildew switch status",
-					slog.Any("err", err),
-					slog.Any("input", publishMildewSwitchInput))
-				return err
-			}
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		if readDeviceStatusRawReturn == nil ||
-			readDeviceStatusRawReturn.Status.Clean != raw.Clean {
-			publishCleanSwitchInput := &modelsMqtt.PublishCleanSwitchInput{
-				Mac:    input.Mac,
-				Status: deviceStatusHA.CleanSwitch,
-			}
-
-			err = s.mqtt.PublishCleanSwitch(gCtx, publishCleanSwitchInput)
-			if err != nil {
-				slog.ErrorContext(gCtx, "failed to publish the clean switch status",
-					slog.Any("err", err),
-					slog.Any("input", publishCleanSwitchInput))
-				return err
-			}
-		}
-		return nil
-	})
-
-	g.Go(func() error {
-		if readDeviceStatusRawReturn == nil ||
-			readDeviceStatusRawReturn.Status.Health != raw.Health {
-			publishHealthSwitchInput := &modelsMqtt.PublishHealthSwitchInput{
-				Mac:    input.Mac,
-				Status: deviceStatusHA.HealthSwitch,
-			}
-
-			err = s.mqtt.PublishHealthSwitch(gCtx, publishHealthSwitchInput)
-			if err != nil {
-				slog.ErrorContext(gCtx, "failed to publish the health switch status",
-					slog.Any("err", err),
-					slog.Any("input", publishHealthSwitchInput))
-				return err
-			}
-		}
-		return nil
-	})
-
-	// Wait for all HTTP fetches to complete.
-	if err = g.Wait(); err != nil {
-		return err
-	}
-
-	//////////////////////////////////////////////////////////////////
-	//  		Update device states in the database                //
-	//////////////////////////////////////////////////////////////////
-
-	upsertDeviceStatusRawInput := &modelsRepo.UpsertDeviceStatusRawInput{
-		Mac:    input.Mac,
-		Status: modelsRepo.DeviceStatusRaw(raw),
-	}
-
-	err = s.cache.UpsertDeviceStatusRaw(ctx, upsertDeviceStatusRawInput)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to upsert the raw device status",
-			slog.Any("err", err),
-			slog.Any("input", upsertDeviceStatusRawInput))
-		return err
-	}
-	return nil
+	return s.publishAndCacheState(ctx, input.Mac, state)
 }
 
-func (s *service) sendCommand(ctx context.Context, input *models.SendCommandInput) (*models.SendCommandReturn, error) {
-	// Read the saved value in repo if no
-	readDeviceAuthInput := &modelsRepo.ReadDeviceAuthInput{
-		Mac: input.Mac,
-	}
-	readDeviceAuthReturn, err := s.cache.ReadDeviceAuth(ctx, readDeviceAuthInput)
+func (s *service) getDeviceAmbientTemperature(ctx context.Context, input *models.GetDeviceAmbientTemperatureInput) error {
+	backend, err := s.backendFor(ctx, input.Mac)
 	if err != nil {
-		slog.ErrorContext(ctx, "device not found",
-			slog.Any("err", err),
-			slog.Any("input", readDeviceAuthInput))
-		return nil, err
+		slog.ErrorContext(ctx, "failed to select device backend", slog.Any("err", err), slog.String("device", input.Mac))
+		return err
 	}
 
-	auth := readDeviceAuthReturn.Auth
-
-	auth.LastMessageId = (auth.LastMessageId + 1) & 0xffff
-
-	macByteSlice := make([]byte, 0, len(input.Mac)/2)
-	for i := 0; i < len(input.Mac); i += 2 {
-		val, err := strconv.ParseUint(input.Mac[i:i+2], 16, 8)
-		if err != nil {
-			slog.ErrorContext(ctx, "mac address is not correct",
-				slog.Any("err", err),
-				slog.Any("input", input.Mac))
-			return nil, err
-		}
-		macByteSlice = append(macByteSlice, byte(val))
-	}
-
-	var packet [0x38]byte
-
-	// Insert body
-	packet[0x00] = 0x5a
-	packet[0x01] = 0xa5
-	packet[0x02] = 0xaa
-	packet[0x03] = 0x55
-	packet[0x04] = 0x5a
-	packet[0x05] = 0xa5
-	packet[0x06] = 0xaa
-	packet[0x07] = 0x55
-	packet[0x24] = 0x2a
-	packet[0x25] = 0x4e
-	packet[0x26] = input.Command // command
-	packet[0x28] = byte(auth.LastMessageId & 0xff)
-	packet[0x29] = byte(auth.LastMessageId >> 8)
-	packet[0x2a] = macByteSlice[0]
-	packet[0x2b] = macByteSlice[1]
-	packet[0x2c] = macByteSlice[2]
-	packet[0x2d] = macByteSlice[3]
-	packet[0x2e] = macByteSlice[4]
-	packet[0x2f] = macByteSlice[5]
-	packet[0x30] = auth.Id[0]
-	packet[0x31] = auth.Id[1]
-	packet[0x32] = auth.Id[2]
-	packet[0x33] = auth.Id[3]
-
-	checksum := 0xbeaf
-	for i := range input.Payload {
-		checksum += int(input.Payload[i])
-		checksum &= 0xffff
-	}
-
-	input.Payload, err = coder.Encrypt(auth.Key, auth.Iv, input.Payload)
+	ambientTemp, err := backend.ReadAmbient(ctx, input.Mac)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to encrypt payload",
-			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", input.Payload))
-		return nil, err
+		return err
+	}
+	if ambientTemp == nil {
+		return nil
 	}
 
-	packet[0x34] = byte(checksum & 0xff)
-	packet[0x35] = byte(checksum >> 8)
+	return s.publishAmbientIfChanged(ctx, input.Mac, *ambientTemp)
+}
 
-	var packetSlice = packet[:]
-
-	packetSlice = append(packetSlice, input.Payload...)
-
-	// Create and insert Checksum
-	checksum = 0xbeaf
-	for i := range packetSlice {
-		checksum += int(packetSlice[i])
-		checksum &= 0xffff
-	}
-	packetSlice[0x20] = byte(checksum & 0xff)
-	packetSlice[0x21] = byte(checksum >> 8)
-
-	// Update last message id in database
-	upsertDeviceAuthInput := &modelsRepo.UpsertDeviceAuthInput{
-		Mac:  input.Mac,
-		Auth: auth,
-	}
-	err = s.cache.UpsertDeviceAuth(ctx, upsertDeviceAuthInput)
+func (s *service) UpdateDeviceStates(ctx context.Context, input *models.UpdateDeviceStatesInput) error {
+	backend, err := s.backendFor(ctx, input.Mac)
 	if err != nil {
-		return nil, err
+		slog.ErrorContext(ctx, "failed to select device backend", slog.Any("err", err), slog.String("device", input.Mac))
+		return err
 	}
-
-	slog.DebugContext(ctx, "packet",
-		slog.Any("err", err),
-		slog.String("device", input.Mac),
-		slog.Any("input", packetSlice))
-
-	// Read config to get IP and Port
-	readDeviceConfigInput := &modelsRepo.ReadDeviceConfigInput{
-		Mac: input.Mac,
-	}
-
-	readDeviceConfigReturn, err := s.cache.ReadDeviceConfig(ctx, readDeviceConfigInput)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to read device config",
-			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", readDeviceConfigInput))
-		return nil, err
-	}
-
-	// Send the packet
-	sendCommandInput := &modelsWeb.SendCommandInput{
-		Payload: packetSlice,
-		Ip:      readDeviceConfigReturn.Config.Ip,
-		Port:    readDeviceConfigReturn.Config.Port,
-	}
-
-	sendCommandReturn, err := s.webClient.SendCommand(ctx, sendCommandInput)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to send a command",
-			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", sendCommandInput))
-		return nil, err
-	}
-
-	return &models.SendCommandReturn{Payload: sendCommandReturn.Payload}, nil
+	return backend.ApplyState(ctx, input.Mac, input)
 }
 
 func (s *service) PublishDiscoveryTopic(ctx context.Context, input *models.PublishDiscoveryTopicInput) error {
 	prefix := s.topicPrefix + "/" + input.Device.Mac
+	caps := s.capabilities(ctx, input.Device.Mac)
 
 	device := modelsMqtt.DiscoveryTopicDevice{
 		Model: "AirCon",
 		Mf:    "broadlink",
-		Sw:    "v1.5.10",
+		Sw:    "v1.6.0",
 		Ids:   input.Device.Mac,
 		Name:  input.Device.Name,
+	}
+	if input.Device.IsCloud() {
+		device.Mf = "aux"
+		device.Model = "AirCon Cloud"
 	}
 
 	availability := modelsMqtt.DiscoveryTopicAvailability{
@@ -814,22 +153,17 @@ func (s *service) PublishDiscoveryTopic(ctx context.Context, input *models.Publi
 		Topic:               prefix + "/availability/value",
 	}
 
-	swingModes := make([]string, 0, len(models.VerticalFixationStatusesInvert))
-	for swingMode := range models.VerticalFixationStatusesInvert {
-		swingModes = append(swingModes, swingMode)
-	}
-
-	publishClimateDiscoveryTopicInput := modelsMqtt.PublishClimateDiscoveryTopicInput{
+	err := s.mqtt.PublishClimateDiscoveryTopic(ctx, modelsMqtt.PublishClimateDiscoveryTopicInput{
 		Topic: modelsMqtt.ClimateDiscoveryTopic{
 			FanModeCommandTopic:     prefix + "/fan_mode/set",
-			FanModes:                []string{"auto", "low", "medium", "high", "turbo", "mute"},
+			FanModes:                caps.FanModes,
 			FanModeStateTopic:       prefix + "/fan_mode/value",
 			ModeCommandTopic:        prefix + "/mode/set",
 			ModeStateTopic:          prefix + "/mode/value",
-			Modes:                   []string{"auto", "off", "cool", "heat", "dry", "fan_only"},
+			Modes:                   caps.Modes,
 			SwingModeCommandTopic:   prefix + "/swing_mode/set",
 			SwingModeStateTopic:     prefix + "/swing_mode/value",
-			SwingModes:              swingModes,
+			SwingModes:              caps.SwingModes,
 			MinTemp:                 16,
 			MaxTemp:                 32,
 			TempStep:                0.5,
@@ -844,78 +178,82 @@ func (s *service) PublishDiscoveryTopic(ctx context.Context, input *models.Publi
 			Icon:                    "mdi:air-conditioner",
 			TemperatureUnit:         input.Device.TemperatureUnit,
 		},
-	}
-	err := s.mqtt.PublishClimateDiscoveryTopic(ctx, publishClimateDiscoveryTopicInput)
+	})
 	if err != nil {
 		return err
 	}
 
-	publishSwitchScreenDiscoveryTopicInput := modelsMqtt.PublishSwitchDiscoveryTopicInput{
-		Topic: modelsMqtt.SwitchDiscoveryTopic{
-			Device:       device,
-			Name:         "Screen",
-			UniqueId:     input.Device.Mac + "_screen",
-			StateTopic:   prefix + "/display/switch/value",
-			CommandTopic: prefix + "/display/switch/set",
-			Availability: availability,
-			Icon:         "mdi:tablet-dashboard",
-		},
+	if caps.DisplaySwitch {
+		err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, modelsMqtt.PublishSwitchDiscoveryTopicInput{
+			Topic: modelsMqtt.SwitchDiscoveryTopic{
+				Device:       device,
+				Name:         "Screen",
+				UniqueId:     input.Device.Mac + "_screen",
+				StateTopic:   prefix + "/display/switch/value",
+				CommandTopic: prefix + "/display/switch/set",
+				Availability: availability,
+				Icon:         "mdi:tablet-dashboard",
+			},
+		})
+		if err != nil {
+			return err
+		}
 	}
 
-	err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchScreenDiscoveryTopicInput)
-	if err != nil {
-		return err
+	if caps.MildewSwitch {
+		err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, modelsMqtt.PublishSwitchDiscoveryTopicInput{
+			Topic: modelsMqtt.SwitchDiscoveryTopic{
+				Device:       device,
+				Name:         "Anti-mold",
+				UniqueId:     input.Device.Mac + "_mildew",
+				StateTopic:   prefix + "/mildew/switch/value",
+				CommandTopic: prefix + "/mildew/switch/set",
+				Availability: availability,
+				Icon:         "mdi:water-off",
+			},
+		})
+		if err != nil {
+			return err
+		}
 	}
 
-	publishSwitchMildewDiscoveryTopicInput := modelsMqtt.PublishSwitchDiscoveryTopicInput{
-		Topic: modelsMqtt.SwitchDiscoveryTopic{
-			Device:       device,
-			Name:         "Anti-mold",
-			UniqueId:     input.Device.Mac + "_mildew",
-			StateTopic:   prefix + "/mildew/switch/value",
-			CommandTopic: prefix + "/mildew/switch/set",
-			Availability: availability,
-			Icon:         "mdi:water-off",
-		},
+	if caps.CleanSwitch {
+		err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, modelsMqtt.PublishSwitchDiscoveryTopicInput{
+			Topic: modelsMqtt.SwitchDiscoveryTopic{
+				Device:       device,
+				Name:         "Clean",
+				UniqueId:     input.Device.Mac + "_clean",
+				StateTopic:   prefix + "/clean/switch/value",
+				CommandTopic: prefix + "/clean/switch/set",
+				Availability: availability,
+				Icon:         "mdi:shimmer",
+			},
+		})
+		if err != nil {
+			return err
+		}
 	}
 
-	err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchMildewDiscoveryTopicInput)
-	if err != nil {
-		return err
+	if caps.HealthSwitch {
+		enabledByDefaultFalse := false
+		err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, modelsMqtt.PublishSwitchDiscoveryTopicInput{
+			Topic: modelsMqtt.SwitchDiscoveryTopic{
+				Device:           device,
+				Name:             "Health",
+				UniqueId:         input.Device.Mac + "_health",
+				StateTopic:       prefix + "/health/switch/value",
+				CommandTopic:     prefix + "/health/switch/set",
+				Availability:     availability,
+				Icon:             "mdi:air-purifier",
+				EnabledByDefault: &enabledByDefaultFalse,
+			},
+		})
+		if err != nil {
+			return err
+		}
 	}
 
-	publishSwitchCleanDiscoveryTopicInput := modelsMqtt.PublishSwitchDiscoveryTopicInput{
-		Topic: modelsMqtt.SwitchDiscoveryTopic{
-			Device:       device,
-			Name:         "Clean",
-			UniqueId:     input.Device.Mac + "_clean",
-			StateTopic:   prefix + "/clean/switch/value",
-			CommandTopic: prefix + "/clean/switch/set",
-			Availability: availability,
-			Icon:         "mdi:shimmer",
-		},
-	}
-
-	err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchCleanDiscoveryTopicInput)
-	if err != nil {
-		return err
-	}
-
-	enabledByDefaultFalse := false
-	publishSwitchHealthDiscoveryTopicInput := modelsMqtt.PublishSwitchDiscoveryTopicInput{
-		Topic: modelsMqtt.SwitchDiscoveryTopic{
-			Device:           device,
-			Name:             "Health",
-			UniqueId:         input.Device.Mac + "_health",
-			StateTopic:       prefix + "/health/switch/value",
-			CommandTopic:     prefix + "/health/switch/set",
-			Availability:     availability,
-			Icon:             "mdi:air-purifier",
-			EnabledByDefault: &enabledByDefaultFalse,
-		},
-	}
-
-	return s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchHealthDiscoveryTopicInput)
+	return nil
 }
 
 func (s *service) UpdateFanMode(ctx context.Context, input *models.UpdateFanModeInput) error {
@@ -927,35 +265,33 @@ func (s *service) UpdateFanMode(ctx context.Context, input *models.UpdateFanMode
 			slog.Any("input", input))
 		return err
 	}
+	if !s.capabilities(ctx, input.Mac).HasFanMode(input.FanMode) {
+		return models.ErrorInvalidParameterFanMode
+	}
 
-	upsertMqttFanModeMessageInput := &modelsRepo.UpsertMqttFanModeMessageInput{
+	err = s.cache.UpsertMqttFanModeMessage(ctx, &modelsRepo.UpsertMqttFanModeMessageInput{
 		Mac: input.Mac,
 		FanMode: modelsRepo.MqttFanModeMessage{
 			UpdatedAt: time.Now(),
 			FanMode:   input.FanMode,
 		},
-	}
-
-	err = s.cache.UpsertMqttFanModeMessage(ctx, upsertMqttFanModeMessageInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to save mqtt message to cache storage",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", upsertMqttFanModeMessageInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 	s.wakeMonitor(input.Mac)
 
-	publishFanModeInput := &modelsMqtt.PublishFanModeInput{
+	err = s.mqtt.PublishFanMode(ctx, &modelsMqtt.PublishFanModeInput{
 		Mac:     input.Mac,
 		FanMode: input.FanMode,
-	}
-	err = s.mqtt.PublishFanMode(ctx, publishFanModeInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to publish fan mode to mqtt",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", publishFanModeInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 
@@ -971,35 +307,33 @@ func (s *service) UpdateMode(ctx context.Context, input *models.UpdateModeInput)
 			slog.Any("input", input))
 		return err
 	}
+	if !s.capabilities(ctx, input.Mac).HasMode(input.Mode) {
+		return models.ErrorInvalidParameterMode
+	}
 
-	upsertMqttModeMessageInput := &modelsRepo.UpsertMqttModeMessageInput{
+	err = s.cache.UpsertMqttModeMessage(ctx, &modelsRepo.UpsertMqttModeMessageInput{
 		Mac: input.Mac,
 		Mode: modelsRepo.MqttModeMessage{
 			UpdatedAt: time.Now(),
 			Mode:      input.Mode,
 		},
-	}
-
-	err = s.cache.UpsertMqttModeMessage(ctx, upsertMqttModeMessageInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to save mqtt message to cache storage",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", upsertMqttModeMessageInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 	s.wakeMonitor(input.Mac)
 
-	publishModeInput := &modelsMqtt.PublishModeInput{
+	err = s.mqtt.PublishMode(ctx, &modelsMqtt.PublishModeInput{
 		Mac:  input.Mac,
 		Mode: input.Mode,
-	}
-	err = s.mqtt.PublishMode(ctx, publishModeInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to publish mode to mqtt",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", publishModeInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 
@@ -1015,35 +349,33 @@ func (s *service) UpdateSwingMode(ctx context.Context, input *models.UpdateSwing
 			slog.Any("input", input))
 		return err
 	}
+	if !s.capabilities(ctx, input.Mac).HasSwingMode(input.SwingMode) {
+		return models.ErrorInvalidParameterSwingMode
+	}
 
-	upsertMqttSwingModeMessageInput := &modelsRepo.UpsertMqttSwingModeMessageInput{
+	err = s.cache.UpsertMqttSwingModeMessage(ctx, &modelsRepo.UpsertMqttSwingModeMessageInput{
 		Mac: input.Mac,
 		SwingMode: modelsRepo.MqttSwingModeMessage{
 			UpdatedAt: time.Now(),
 			SwingMode: input.SwingMode,
 		},
-	}
-
-	err = s.cache.UpsertMqttSwingModeMessage(ctx, upsertMqttSwingModeMessageInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to save mqtt message to cache storage",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", upsertMqttSwingModeMessageInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 	s.wakeMonitor(input.Mac)
 
-	publishSwingModeInput := &modelsMqtt.PublishSwingModeInput{
+	err = s.mqtt.PublishSwingMode(ctx, &modelsMqtt.PublishSwingModeInput{
 		Mac:       input.Mac,
 		SwingMode: input.SwingMode,
-	}
-	err = s.mqtt.PublishSwingMode(ctx, publishSwingModeInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to publish swing mode to mqtt",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", publishSwingModeInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 
@@ -1051,15 +383,11 @@ func (s *service) UpdateSwingMode(ctx context.Context, input *models.UpdateSwing
 }
 
 func (s *service) UpdateTemperature(ctx context.Context, input *models.UpdateTemperatureInput) error {
-	readDeviceConfigInput := &modelsRepo.ReadDeviceConfigInput{
-		Mac: input.Mac,
-	}
-	readDeviceConfigReturn, err := s.cache.ReadDeviceConfig(ctx, readDeviceConfigInput)
+	readDeviceConfigReturn, err := s.cache.ReadDeviceConfig(ctx, &modelsRepo.ReadDeviceConfigInput{Mac: input.Mac})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to read device config",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", readDeviceConfigInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 
@@ -1073,20 +401,17 @@ func (s *service) UpdateTemperature(ctx context.Context, input *models.UpdateTem
 		return err
 	}
 
-	upsertMqttTemperatureMessageInput := &modelsRepo.UpsertMqttTemperatureMessageInput{
+	err = s.cache.UpsertMqttTemperatureMessage(ctx, &modelsRepo.UpsertMqttTemperatureMessageInput{
 		Mac: input.Mac,
 		Temperature: modelsRepo.MqttTemperatureMessage{
 			UpdatedAt:   time.Now(),
 			Temperature: input.Temperature,
 		},
-	}
-
-	err = s.cache.UpsertMqttTemperatureMessage(ctx, upsertMqttTemperatureMessageInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to save mqtt message to cache storage",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", upsertMqttTemperatureMessageInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 	s.wakeMonitor(input.Mac)
@@ -1103,21 +428,21 @@ func (s *service) UpdateDisplaySwitch(ctx context.Context, input *models.UpdateD
 			slog.Any("input", input))
 		return err
 	}
+	if !s.capabilities(ctx, input.Mac).DisplaySwitch {
+		return models.ErrorInvalidParameterDisplayStatus
+	}
 
-	upsertDisplaySwitchMessageInput := &modelsRepo.UpsertMqttDisplaySwitchMessageInput{
+	err = s.cache.UpsertMqttDisplaySwitchMessage(ctx, &modelsRepo.UpsertMqttDisplaySwitchMessageInput{
 		Mac: input.Mac,
 		DisplaySwitch: modelsRepo.MqttDisplaySwitchMessage{
 			UpdatedAt:   time.Now(),
 			IsDisplayOn: input.Status == "ON",
 		},
-	}
-
-	err = s.cache.UpsertMqttDisplaySwitchMessage(ctx, upsertDisplaySwitchMessageInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to save mqtt message to cache storage",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", upsertDisplaySwitchMessageInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 	s.wakeMonitor(input.Mac)
@@ -1134,21 +459,21 @@ func (s *service) UpdateMildewSwitch(ctx context.Context, input *models.UpdateMi
 			slog.Any("input", input))
 		return err
 	}
+	if !s.capabilities(ctx, input.Mac).MildewSwitch {
+		return models.ErrorInvalidParameterMildewStatus
+	}
 
-	upsertMildewSwitchMessageInput := &modelsRepo.UpsertMqttMildewSwitchMessageInput{
+	err = s.cache.UpsertMqttMildewSwitchMessage(ctx, &modelsRepo.UpsertMqttMildewSwitchMessageInput{
 		Mac: input.Mac,
 		MildewSwitch: modelsRepo.MqttMildewSwitchMessage{
 			UpdatedAt:  time.Now(),
 			IsMildewOn: input.Status == "ON",
 		},
-	}
-
-	err = s.cache.UpsertMqttMildewSwitchMessage(ctx, upsertMildewSwitchMessageInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to save mqtt message to cache storage",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", upsertMildewSwitchMessageInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 	s.wakeMonitor(input.Mac)
@@ -1165,21 +490,21 @@ func (s *service) UpdateCleanSwitch(ctx context.Context, input *models.UpdateCle
 			slog.Any("input", input))
 		return err
 	}
+	if !s.capabilities(ctx, input.Mac).CleanSwitch {
+		return models.ErrorInvalidParameterCleanStatus
+	}
 
-	upsertCleanSwitchMessageInput := &modelsRepo.UpsertMqttCleanSwitchMessageInput{
+	err = s.cache.UpsertMqttCleanSwitchMessage(ctx, &modelsRepo.UpsertMqttCleanSwitchMessageInput{
 		Mac: input.Mac,
 		CleanSwitch: modelsRepo.MqttCleanSwitchMessage{
 			UpdatedAt: time.Now(),
 			IsCleanOn: input.Status == "ON",
 		},
-	}
-
-	err = s.cache.UpsertMqttCleanSwitchMessage(ctx, upsertCleanSwitchMessageInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to save mqtt message to cache storage",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", upsertCleanSwitchMessageInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 	s.wakeMonitor(input.Mac)
@@ -1196,21 +521,21 @@ func (s *service) UpdateHealthSwitch(ctx context.Context, input *models.UpdateHe
 			slog.Any("input", input))
 		return err
 	}
+	if !s.capabilities(ctx, input.Mac).HealthSwitch {
+		return models.ErrorInvalidParameterHealthStatus
+	}
 
-	upsertHealthSwitchMessageInput := &modelsRepo.UpsertMqttHealthSwitchMessageInput{
+	err = s.cache.UpsertMqttHealthSwitchMessage(ctx, &modelsRepo.UpsertMqttHealthSwitchMessageInput{
 		Mac: input.Mac,
 		HealthSwitch: modelsRepo.MqttHealthSwitchMessage{
 			UpdatedAt:  time.Now(),
 			IsHealthOn: input.Status == "ON",
 		},
-	}
-
-	err = s.cache.UpsertMqttHealthSwitchMessage(ctx, upsertHealthSwitchMessageInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to save mqtt message to cache storage",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", upsertHealthSwitchMessageInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 	s.wakeMonitor(input.Mac)
@@ -1218,242 +543,26 @@ func (s *service) UpdateHealthSwitch(ctx context.Context, input *models.UpdateHe
 	return nil
 }
 
-func (s *service) UpdateDeviceStates(ctx context.Context, input *models.UpdateDeviceStatesInput) error {
-	readDeviceStatusRawInput := &modelsRepo.ReadDeviceStatusRawInput{
-		Mac: input.Mac,
-	}
-
-	readDeviceStatusRawReturn, err := s.cache.ReadDeviceStatusRaw(ctx, readDeviceStatusRawInput)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to read device raw status",
-			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", readDeviceStatusRawInput))
-		return err
-	}
-
-	// Convert Home Assistant to BroadLink types
-	// SWING MODE
-	var verticalFixation byte
-	if input.SwingMode != nil {
-		key, ok := models.VerticalFixationStatusesInvert[*input.SwingMode]
-		if !ok {
-			slog.ErrorContext(ctx, "Invalid parameter Swing mode",
-				slog.String("device", input.Mac),
-				slog.Any("input", *input.SwingMode))
-
-			return models.ErrorInvalidParameterSwingMode
-		}
-		verticalFixation = byte(key)
-	} else {
-		verticalFixation = readDeviceStatusRawReturn.Status.FixationVertical
-	}
-
-	// TEMPERATURE
-	var temperature, temperature05 int
-	if input.Temperature != nil {
-		if *input.Temperature > 32 || *input.Temperature < 16 {
-			slog.ErrorContext(ctx, "Invalid parameter temperature",
-				slog.String("device", input.Mac),
-				slog.Any("input", *input.Temperature))
-
-			return models.ErrorInvalidParameterTemperature
-		}
-
-		temperature = int(*input.Temperature) - 8
-
-		if int(*input.Temperature*10)%(int(*input.Temperature)*10) == 5 {
-			temperature05 = 1
-		}
-	} else {
-		switch {
-		case readDeviceStatusRawReturn.Status.Temperature < 16:
-			temperature = 16 - 8
-		case readDeviceStatusRawReturn.Status.Temperature > 32:
-			temperature = 32 - 8
-		default:
-			temperature = int(readDeviceStatusRawReturn.Status.Temperature) - 8
-			if readDeviceStatusRawReturn.Status.Temperature-float32(int(readDeviceStatusRawReturn.Status.Temperature)) != 0 {
-				temperature05 = 1
-			}
-		}
-	}
-
-	// FAN MODE
-	var fanMode, turbo, mute byte
-	if input.FanMode != nil {
-		switch *input.FanMode {
-		case "mute":
-			mute = models.StatusOn
-		case "turbo":
-			turbo = models.StatusOn
-		default:
-			key, ok := models.FanStatusesInvert[*input.FanMode]
-			if !ok {
-				slog.ErrorContext(ctx, "Invalid parameter fan mode",
-					slog.String("device", input.Mac),
-					slog.Any("input", *input.FanMode))
-
-				return models.ErrorInvalidParameterFanMode
-			}
-			fanMode = byte(key)
-		}
-	} else {
-		fanMode = readDeviceStatusRawReturn.Status.FanSpeed
-		mute = readDeviceStatusRawReturn.Status.Mute
-		turbo = readDeviceStatusRawReturn.Status.Turbo
-	}
-
-	// MILDEW
-	var mildew byte
-	if input.IsMildewOn != nil {
-		mildew = models.HassOnOffToByte(*input.IsMildewOn)
-	} else {
-		mildew = readDeviceStatusRawReturn.Status.Mildew
-	}
-
-	// CLEAN
-	var clean byte
-	if input.IsCleanOn != nil {
-		clean = models.HassOnOffToByte(*input.IsCleanOn)
-	} else {
-		clean = readDeviceStatusRawReturn.Status.Clean
-	}
-
-	// HEALTH
-	var health byte
-	if input.IsHealthOn != nil {
-		health = models.HassOnOffToByte(*input.IsHealthOn)
-	} else {
-		health = readDeviceStatusRawReturn.Status.Health
-	}
-
-	// DISPLAY
-	var displaySwitch byte
-	if input.IsDisplayOn != nil {
-		readDeviceConfigInput := &modelsRepo.ReadDeviceConfigInput{
-			Mac: input.Mac,
-		}
-		readDeviceConfigReturn, err := s.cache.ReadDeviceConfig(ctx, readDeviceConfigInput)
-		if err != nil {
-			slog.ErrorContext(ctx, "failed to read device config",
-				slog.Any("err", err),
-				slog.String("device", input.Mac),
-				slog.Any("input", readDeviceConfigInput))
-			return err
-		}
-		displaySwitch = models.HassDisplayToByte(*input.IsDisplayOn, readDeviceConfigReturn.Config.InvertDisplay)
-	} else {
-		displaySwitch = readDeviceStatusRawReturn.Status.Display
-	}
-
-	// MODE
-	var mode, power byte
-	if input.Mode != nil {
-		if *input.Mode == "off" {
-			mode = readDeviceStatusRawReturn.Status.Mode
-			power = models.StatusOff
-		} else {
-			key, ok := models.ModeStatusesInvert[*input.Mode]
-			if !ok {
-				slog.ErrorContext(ctx, "Invalid parameter mode",
-					slog.String("device", input.Mac),
-					slog.Any("input", *input.Mode))
-
-				return models.ErrorInvalidParameterMode
-			}
-
-			mode = byte(key)
-			power = models.StatusOn
-		}
-	} else {
-		power = readDeviceStatusRawReturn.Status.Power
-		mode = readDeviceStatusRawReturn.Status.Mode
-	}
-
-	// Insert values in payload
-	var payload [23]byte
-	payload[0] = 0xbb
-	payload[1] = 0x00
-	payload[2] = 0x06
-	payload[3] = 0x80
-	payload[4] = 0x00
-	payload[5] = 0x00
-	payload[6] = 0x0f
-	payload[7] = 0x00
-	payload[8] = 0x01
-	payload[9] = 0x01
-	payload[10] = 0b00000000 | byte(temperature)<<3 | verticalFixation
-	payload[11] = 0b00000000 | readDeviceStatusRawReturn.Status.FixationHorizontal<<5
-	payload[12] = 0b00001111 | byte(temperature05)<<7
-	payload[13] = 0b00000000 | fanMode<<5
-	payload[14] = 0b00000000 | turbo<<6 | mute<<7
-	payload[15] = 0b00000000 | mode<<5 | readDeviceStatusRawReturn.Status.Sleep<<2
-	payload[16] = 0b00000000
-	payload[17] = 0x00
-	payload[18] = 0b00000000 | power<<5 | health<<1 | clean<<2
-	payload[19] = 0x00
-	payload[20] = 0b00000000 | displaySwitch<<4 | mildew<<3
-	payload[21] = 0b00000000
-	payload[22] = 0b00000000
-
-	// Add checksum
-	var payloadChecksum [32]byte
-	payloadChecksum[0] = byte(len(payload) + 2)
-
-	copy(payloadChecksum[2:], payload[:])
-
-	var checksum int
-	for i := 0; i < len(payload); i += 2 {
-		checksum += int(payload[i])<<8 + int(append(payload[:], byte(0))[i+1])
-	}
-	checksum = (checksum >> 16) + (checksum & 0xFFFF)
-	checksum = ^checksum & 0xFFFF
-
-	payloadChecksum[len(payload)+2] = byte((checksum >> 8) & 0xFF)
-	payloadChecksum[len(payload)+3] = byte(checksum & 0xFF)
-
-	sendCommandInput := &models.SendCommandInput{
-		Command: 0x6a,
-		Payload: payloadChecksum[:],
-		Mac:     input.Mac,
-	}
-	_, err = s.sendCommand(ctx, sendCommandInput)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to send a set command",
-			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", sendCommandInput))
-		return err
-	}
-
-	return nil
-}
-
 func (s *service) UpdateDeviceAvailability(ctx context.Context, input *models.UpdateDeviceAvailabilityInput) error {
-	upsertDeviceAvailabilityInput := &modelsRepo.UpsertDeviceAvailabilityInput{
+	err := s.cache.UpsertDeviceAvailability(ctx, &modelsRepo.UpsertDeviceAvailabilityInput{
 		Mac:          input.Mac,
 		Availability: input.Availability,
-	}
-	err := s.cache.UpsertDeviceAvailability(ctx, upsertDeviceAvailabilityInput)
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to upsert device availability",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", upsertDeviceAvailabilityInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 
-	publishAvailabilityInput := &modelsMqtt.PublishAvailabilityInput{
+	err = s.mqtt.PublishAvailability(ctx, &modelsMqtt.PublishAvailabilityInput{
 		Mac:          input.Mac,
 		Availability: input.Availability,
-	}
-	err = s.mqtt.PublishAvailability(ctx, publishAvailabilityInput)
+	})
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to create command payload",
+		slog.ErrorContext(ctx, "failed to publish device availability",
 			slog.Any("err", err),
-			slog.String("device", input.Mac),
-			slog.Any("input", publishAvailabilityInput))
+			slog.String("device", input.Mac))
 		return err
 	}
 

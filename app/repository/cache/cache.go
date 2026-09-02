@@ -141,6 +141,38 @@ func (c *cache) ReadDeviceStatusRaw(ctx context.Context, input *models.ReadDevic
 	return &models.ReadDeviceStatusRawReturn{Status: *device.DeviceStatusRaw}, nil
 }
 
+func (c *cache) UpsertDeviceStatusHass(ctx context.Context, input *models.UpsertDeviceStatusHassInput) error {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	device, ok := c.devices[input.Mac]
+	if !ok {
+		slog.ErrorContext(ctx, "device is not found in cache", slog.Any("input", input))
+		return models.ErrorDeviceNotFound
+	}
+
+	device.DeviceStatusHass = &input.Status
+	c.devices[input.Mac] = device
+	return nil
+}
+
+func (c *cache) ReadDeviceStatusHass(ctx context.Context, input *models.ReadDeviceStatusHassInput) (*models.ReadDeviceStatusHassReturn, error) {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+
+	device, ok := c.devices[input.Mac]
+	if !ok {
+		slog.ErrorContext(ctx, "device is not found in cache", slog.Any("input", input))
+		return nil, models.ErrorDeviceNotFound
+	}
+
+	if device.DeviceStatusHass == nil {
+		return nil, models.ErrorDeviceStatusHassNotFound
+	}
+
+	return &models.ReadDeviceStatusHassReturn{Status: *device.DeviceStatusHass}, nil
+}
+
 func (c *cache) UpsertMqttModeMessage(ctx context.Context, input *models.UpsertMqttModeMessageInput) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()

@@ -30,3 +30,13 @@ devices:
     # Invert display flips ON/OFF mapping for devices with reversed screen logic.
     # Default (false): protocol byte 0 = ON, byte 1 = OFF.
     invert_display: false
+
+# Experimental AUX / AC Freedom cloud support.
+# cloud:
+#   enabled: false
+#   email: "your@email.com"
+#   password: "your_password"
+#   region: eu
+#   auto_discover: true
+#   hidden_devices: []
+#   temperature_unit: C

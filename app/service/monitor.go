@@ -39,6 +39,7 @@ type deviceMonitor struct {
 
 	lastSuccess      time.Time
 	lastUDP          time.Time
+	minGap           time.Duration
 	startedAt        time.Time
 	consecutiveFails int
 	backoffStep      int
@@ -83,12 +84,20 @@ func (s *service) StartDeviceMonitoring(ctx context.Context, input *models.Start
 		backoffCap = pollInterval * 3
 	}
 
+	minGap := minUdpGap
+	if backend, err := s.backendFor(ctx, input.Mac); err == nil {
+		if gap := backend.MinRequestGap(); gap > 0 {
+			minGap = gap
+		}
+	}
+
 	m := &deviceMonitor{
 		s:            s,
 		mac:          input.Mac,
 		pollInterval: pollInterval,
 		offlineAfter: pollInterval * 3,
 		backoffCap:   backoffCap,
+		minGap:       minGap,
 		startedAt:    time.Now(),
 	}
 
@@ -104,7 +113,9 @@ func (s *service) StartDeviceMonitoring(ctx context.Context, input *models.Start
 			return nil
 		}
 	}
-	m.startAmbientIfReady(ctx, ambientTicker)
+	if m.supportsAmbientPoll(ctx) {
+		m.startAmbientIfReady(ctx, ambientTicker)
+	}
 
 	for {
 		select {
@@ -114,12 +125,16 @@ func (s *service) StartDeviceMonitoring(ctx context.Context, input *models.Start
 			if err := m.applyPendingCommands(ctx, pollTicker); err != nil && ctx.Err() != nil {
 				return nil
 			}
-			m.startAmbientIfReady(ctx, ambientTicker)
+			if m.supportsAmbientPoll(ctx) {
+				m.startAmbientIfReady(ctx, ambientTicker)
+			}
 		case <-pollTicker.C:
 			if err := m.pollState(ctx); err != nil && ctx.Err() != nil {
 				return nil
 			}
-			m.startAmbientIfReady(ctx, ambientTicker)
+			if m.supportsAmbientPoll(ctx) {
+				m.startAmbientIfReady(ctx, ambientTicker)
+			}
 		case <-ambientTicker.C:
 			if !m.hasSuccess {
 				continue
@@ -202,7 +217,7 @@ func (m *deviceMonitor) applyPendingCommands(ctx context.Context, pollTicker *ti
 	if !pending.anyPending {
 		return nil
 	}
-	if !m.hasRawStatus(ctx) {
+	if !m.hasKnownState(ctx) {
 		return nil
 	}
 
@@ -340,17 +355,29 @@ func (m *deviceMonitor) rememberApplied(pending *pendingCommands) {
 	}
 }
 
-func (m *deviceMonitor) hasRawStatus(ctx context.Context) bool {
-	_, err := m.s.cache.ReadDeviceStatusRaw(ctx, &modelsRepo.ReadDeviceStatusRawInput{Mac: m.mac})
+func (m *deviceMonitor) hasKnownState(ctx context.Context) bool {
+	_, err := m.s.cache.ReadDeviceStatusHass(ctx, &modelsRepo.ReadDeviceStatusHassInput{Mac: m.mac})
 	if err == nil {
 		return true
 	}
-	if !errors.Is(err, modelsRepo.ErrorDeviceStatusRawNotFound) {
-		slog.ErrorContext(ctx, "failed to read raw device status",
+	if errors.Is(err, modelsRepo.ErrorDeviceStatusHassNotFound) {
+		_, rawErr := m.s.cache.ReadDeviceStatusRaw(ctx, &modelsRepo.ReadDeviceStatusRawInput{Mac: m.mac})
+		return rawErr == nil
+	}
+	if !errors.Is(err, modelsRepo.ErrorDeviceNotFound) {
+		slog.ErrorContext(ctx, "failed to read device status",
 			slog.Any("err", err),
 			slog.String("device", m.mac))
 	}
 	return false
+}
+
+func (m *deviceMonitor) supportsAmbientPoll(ctx context.Context) bool {
+	cfg, err := m.s.cache.ReadDeviceConfig(ctx, &modelsRepo.ReadDeviceConfigInput{Mac: m.mac})
+	if err != nil {
+		return true
+	}
+	return !cfg.Config.IsCloud()
 }
 
 func (m *deviceMonitor) wakeIfPending(ctx context.Context) {
@@ -408,8 +435,12 @@ func (m *deviceMonitor) waitMinGap(ctx context.Context) error {
 }
 
 func (m *deviceMonitor) waitBeforeUDP(ctx context.Context, minWait time.Duration) error {
-	if minWait < minUdpGap {
-		minWait = minUdpGap
+	gap := m.minGap
+	if gap <= 0 {
+		gap = minUdpGap
+	}
+	if minWait < gap {
+		minWait = gap
 	}
 	if m.lastUDP.IsZero() {
 		return nil

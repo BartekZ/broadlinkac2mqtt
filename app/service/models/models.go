@@ -2,7 +2,14 @@ package models
 
 import (
 	"errors"
+	"strings"
 	"time"
+	"unicode"
+)
+
+const (
+	BackendLocal = "local"
+	BackendCloud = "cloud"
 )
 
 type Device struct {
@@ -17,18 +24,65 @@ type DeviceConfig struct {
 	Port            uint16
 	TemperatureUnit string
 	InvertDisplay   bool
+	Backend         string
+	CloudEndpointID string
+	CloudProductID  string
+}
+
+func (input DeviceConfig) IsCloud() bool {
+	return strings.EqualFold(input.Backend, BackendCloud)
 }
 
 func (input *DeviceConfig) Validate() error {
-	if len(input.Mac) != 12 {
+	if input.Backend == "" {
+		input.Backend = BackendLocal
+	}
+	if !strings.EqualFold(input.Backend, BackendLocal) && !strings.EqualFold(input.Backend, BackendCloud) {
+		return errors.New("unknown device backend")
+	}
+
+	mac, err := NormalizeMac(input.Mac)
+	if err != nil {
+		if input.IsCloud() {
+			return errors.New("cloud device mac is missing or invalid")
+		}
 		return errors.New("mac address is wrong")
 	}
+	input.Mac = mac
 
 	if input.TemperatureUnit != Celsius && input.TemperatureUnit != Fahrenheit {
 		return errors.New("unknown temperature unit")
 	}
 
+	if input.IsCloud() {
+		if input.CloudEndpointID == "" {
+			return errors.New("cloud device id is required")
+		}
+		return nil
+	}
+
+	if input.Ip == "" {
+		return errors.New("ip is required for local devices")
+	}
+	if input.Port == 0 {
+		return errors.New("port is required for local devices")
+	}
+
 	return nil
+}
+
+func NormalizeMac(mac string) (string, error) {
+	var b strings.Builder
+	b.Grow(12)
+	for _, r := range strings.ToLower(mac) {
+		if unicode.Is(unicode.ASCII_Hex_Digit, r) {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() != 12 {
+		return "", errors.New("mac address is wrong")
+	}
+	return b.String(), nil
 }
 
 type DeviceAuth struct {
@@ -48,6 +102,67 @@ type DeviceStatusHass struct {
 	MildewSwitch  string
 	CleanSwitch   string
 	HealthSwitch  string
+}
+
+type DeviceState struct {
+	Status      DeviceStatusHass
+	AmbientTemp *float32
+	Raw         *DeviceStatusRaw
+}
+
+type DeviceCapabilities struct {
+	Modes         []string
+	FanModes      []string
+	SwingModes    []string
+	DisplaySwitch bool
+	MildewSwitch  bool
+	CleanSwitch   bool
+	HealthSwitch  bool
+}
+
+func DefaultLocalCapabilities() DeviceCapabilities {
+	return DeviceCapabilities{
+		Modes:         []string{"auto", "off", "cool", "heat", "dry", "fan_only"},
+		FanModes:      []string{"auto", "low", "medium", "high", "turbo", "mute"},
+		SwingModes:    []string{"off", "top", "middle1", "middle2", "middle3", "bottom", "swing", "auto"},
+		DisplaySwitch: true,
+		MildewSwitch:  true,
+		CleanSwitch:   true,
+		HealthSwitch:  true,
+	}
+}
+
+func DefaultCloudCapabilities() DeviceCapabilities {
+	return DeviceCapabilities{
+		Modes:         []string{"auto", "off", "cool", "heat", "dry", "fan_only"},
+		FanModes:      []string{"auto", "low", "medium", "high", "turbo", "mute"},
+		SwingModes:    []string{"off", "swing"},
+		DisplaySwitch: true,
+		MildewSwitch:  true,
+		CleanSwitch:   true,
+		HealthSwitch:  true,
+	}
+}
+
+func (c DeviceCapabilities) HasValue(values []string, value string) bool {
+	for _, item := range values {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+func (c DeviceCapabilities) HasMode(mode string) bool {
+	return c.HasValue(c.Modes, mode)
+}
+
+func (c DeviceCapabilities) HasFanMode(mode string) bool {
+	return c.HasValue(c.FanModes, mode)
+}
+
+func (c DeviceCapabilities) HasSwingMode(mode string) bool {
+	return c.HasValue(c.SwingModes, mode)
 }
 
 type DeviceStatusRaw struct {

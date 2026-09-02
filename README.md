@@ -51,6 +51,17 @@ Example of config.yml
         # Default (false)
         invert_display: false
 
+    # Experimental AUX / AC Freedom cloud support. Local devices keep working
+    # when this block is omitted or enabled: false.
+    # cloud:
+    #   enabled: false
+    #   email: "your@email.com"
+    #   password: "your_password"
+    #   region: eu                 # eu, usa, or cn
+    #   auto_discover: true
+    #   hidden_devices: []
+    #   temperature_unit: C
+
 ```
 
 ## Installation
@@ -96,7 +107,52 @@ Download application from releases or build it with command "go build". Then you
 > if there is a problem with checksum you have to remove the device from ac freedom app, reset wifi and after the wifi is connected once again (in the ac freedom app) just cancel and you will get connection. If it's still 
 > not working, just take a look at [a hardware approach](https://github.com/GrKoR/esphome_aux_ac_component/blob/06388ebb2c2792098e93dd844c3c812440a06288/README-EN.md#esphome-aux-air-conditioner-custom-component-aux_ac)
 
-OR your device is not supported. 
+OR your device is not supported.
+
+## AUX / AC Freedom Cloud (experimental)
+
+Some AUX units are reachable only through the AC Freedom cloud. This integration is **opt-in**, uses the undocumented AUX Cloud HTTPS API, and is not a generic Broadlink Cloud client.
+
+Requirements:
+
+* An AC Freedom account
+* Internet access from the host that runs broadlinkac2mqtt
+* Region `eu`, `usa`, or `cn`
+
+Enable cloud auto-discovery while keeping local devices:
+
+```
+    cloud:
+      enabled: true
+      email: "your@email.com"
+      password: "your_password"
+      region: eu
+      auto_discover: true
+      hidden_devices:
+        - "Bedroom AC"
+      temperature_unit: C
+```
+
+Local `devices` stay as they are. Discovered cloud units are added automatically and identified in MQTT/Home Assistant by their MAC. If a local device already uses that MAC, the local device wins.
+
+`device_id` is the AUX/AC Freedom `endpointId` from your account. Leave it empty when `auto_discover: true`: the app fills it in from discovery. Set it only if you add a cloud unit manually:
+
+```
+    devices:
+      - transport: cloud
+        mac: 34ea345b0fd4
+        name: Living Room AC
+        device_id: "1a2b3c4d-5e6f-7g8h-9i0j-1k2l3m4n5o6p"
+```
+
+Local devices do not need `device_id` or `transport`. `ip`, `mac`, and `port` are enough.
+
+Limitations:
+
+* Only AUX/AC Freedom devices that appear in account discovery and support `DNA.KeyValueControl`
+* Cloud swing is on/off, not the 8 local vane positions
+* The vendor API, app headers, and license query parameter can change or stop working without notice
+* Account password is stored in the config file; treat it as a secret
 
 ## Support
 
