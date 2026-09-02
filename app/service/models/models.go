@@ -45,6 +45,7 @@ type DeviceStatusHass struct {
 	Mode          string
 	Temperature   float32
 	DisplaySwitch string
+	MildewSwitch  string
 }
 
 type DeviceStatusRaw struct {
@@ -130,8 +131,23 @@ func (raw DeviceStatusRaw) ConvertToDeviceStatusHA(invertDisplay bool) (mqttStat
 	}
 
 	deviceStatusMqtt.DisplaySwitch = DisplayByteToHass(raw.Display, invertDisplay)
+	deviceStatusMqtt.MildewSwitch = MildewByteToHass(raw.Mildew)
 
 	return deviceStatusMqtt
+}
+
+func MildewByteToHass(mildew byte) string {
+	if mildew == StatusOn {
+		return "ON"
+	}
+	return "OFF"
+}
+
+func HassMildewToByte(isOn bool) byte {
+	if isOn {
+		return StatusOn
+	}
+	return StatusOff
 }
 
 type CreateDeviceInput struct {
@@ -236,6 +252,7 @@ type UpdateDeviceStatesInput struct {
 	Mode        *string
 	Temperature *float32
 	IsDisplayOn *bool
+	IsMildewOn  *bool
 }
 
 type CreateCommandPayloadReturn struct {
@@ -263,6 +280,18 @@ type UpdateDisplaySwitchInput struct {
 func (input *UpdateDisplaySwitchInput) Validate() error {
 	if input.Status != "ON" && input.Status != "OFF" {
 		return ErrorInvalidParameterDisplayStatus
+	}
+	return nil
+}
+
+type UpdateMildewSwitchInput struct {
+	Mac    string
+	Status string
+}
+
+func (input *UpdateMildewSwitchInput) Validate() error {
+	if input.Status != "ON" && input.Status != "OFF" {
+		return ErrorInvalidParameterMildewStatus
 	}
 	return nil
 }

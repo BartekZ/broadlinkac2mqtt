@@ -58,3 +58,30 @@ func TestConvertToDeviceStatusHADisplay(t *testing.T) {
 		t.Fatalf("invert_display DisplaySwitch = %q, want ON", got)
 	}
 }
+
+func TestMildewByteToHass(t *testing.T) {
+	if got := MildewByteToHass(0); got != "OFF" {
+		t.Fatalf("MildewByteToHass(0) = %q, want OFF", got)
+	}
+	if got := MildewByteToHass(1); got != "ON" {
+		t.Fatalf("MildewByteToHass(1) = %q, want ON", got)
+	}
+}
+
+func TestHassMildewToByte(t *testing.T) {
+	if got := HassMildewToByte(true); got != 1 {
+		t.Fatalf("HassMildewToByte(true) = %d, want 1", got)
+	}
+	if got := HassMildewToByte(false); got != 0 {
+		t.Fatalf("HassMildewToByte(false) = %d, want 0", got)
+	}
+}
+
+func TestConvertToDeviceStatusHAMildew(t *testing.T) {
+	if got := (DeviceStatusRaw{Mildew: 0}).ConvertToDeviceStatusHA(false).MildewSwitch; got != "OFF" {
+		t.Fatalf("MildewSwitch = %q, want OFF", got)
+	}
+	if got := (DeviceStatusRaw{Mildew: 1}).ConvertToDeviceStatusHA(false).MildewSwitch; got != "ON" {
+		t.Fatalf("MildewSwitch = %q, want ON", got)
+	}
+}

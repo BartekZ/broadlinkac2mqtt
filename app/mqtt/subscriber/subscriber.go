@@ -159,3 +159,25 @@ func (m *mqttSubscriber) UpdateDisplaySwitchCommandTopic(ctx context.Context) mq
 		}
 	}
 }
+
+func (m *mqttSubscriber) UpdateMildewSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler {
+	return func(c mqtt.Client, msg mqtt.Message) {
+		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/mildew/switch/set"), m.mqttConfig.TopicPrefix+"/")
+
+		m.logger.DebugContext(ctx, "new update mildew status message",
+			slog.String("device", mac),
+			slog.String("payload", string(msg.Payload())),
+			slog.String("topic", msg.Topic()))
+
+		updateMildewSwitchInput := &modelsservice.UpdateMildewSwitchInput{
+			Mac:    mac,
+			Status: string(msg.Payload()),
+		}
+
+		err := m.service.UpdateMildewSwitch(ctx, updateMildewSwitchInput)
+		if err != nil {
+			m.logger.ErrorContext(ctx, "failed to update mildew switch", slog.Any("input", updateMildewSwitchInput))
+			return
+		}
+	}
+}

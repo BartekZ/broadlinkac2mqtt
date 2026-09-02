@@ -58,6 +58,7 @@ type MqttStatus struct {
 	Mode          *MqttModeMessage
 	Temperature   *MqttTemperatureMessage
 	DisplaySwitch *MqttDisplaySwitchMessage
+	MildewSwitch  *MqttMildewSwitchMessage
 }
 
 type ReadDeviceConfigInput struct {
@@ -141,6 +142,16 @@ type UpsertMqttDisplaySwitchMessageInput struct {
 	DisplaySwitch MqttDisplaySwitchMessage
 }
 
+type MqttMildewSwitchMessage struct {
+	UpdatedAt  time.Time
+	IsMildewOn bool
+}
+
+type UpsertMqttMildewSwitchMessageInput struct {
+	Mac          string
+	MildewSwitch MqttMildewSwitchMessage
+}
+
 type MqttSwingModeMessage struct {
 	UpdatedAt time.Time
 	SwingMode string
@@ -171,6 +182,7 @@ type ReadMqttMessageReturn struct {
 	FanMode     *MqttFanModeMessage
 	Mode        *MqttModeMessage
 	IsDisplayOn *MqttDisplaySwitchMessage
+	IsMildewOn  *MqttMildewSwitchMessage
 }
 
 type UpsertDeviceAvailabilityInput struct {

@@ -173,6 +173,18 @@ func (s *service) PublishStatesOnHomeAssistantRestart(ctx context.Context, input
 					slog.Any("input", publishDisplaySwitchInput))
 				return err
 			}
+
+			publishMildewSwitchInput := &modelsMqtt.PublishMildewSwitchInput{
+				Mac:    mac,
+				Status: hassStatus.MildewSwitch,
+			}
+			err = s.mqtt.PublishMildewSwitch(gCtx, publishMildewSwitchInput)
+			if err != nil {
+				s.logger.ErrorContext(gCtx, "failed to publish the mildew switch status",
+					slog.Any("err", err),
+					slog.Any("input", publishMildewSwitchInput))
+				return err
+			}
 			return nil
 		})
 	}

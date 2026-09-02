@@ -33,6 +33,7 @@ type deviceMonitor struct {
 	fanModeUpdatedTime     time.Time
 	temperatureUpdatedTime time.Time
 	isDisplayOnUpdatedTime time.Time
+	isMildewOnUpdatedTime  time.Time
 
 	lastSuccess      time.Time
 	lastUDP          time.Time
@@ -50,12 +51,14 @@ type pendingCommands struct {
 	fanMode     *string
 	temperature *float32
 	isDisplayOn *bool
+	isMildewOn  *bool
 
 	modeAt     time.Time
 	swingAt    time.Time
 	fanAt      time.Time
 	tempAt     time.Time
 	displayAt  time.Time
+	mildewAt   time.Time
 	anyPending bool
 }
 
@@ -208,6 +211,7 @@ func (m *deviceMonitor) applyPendingCommands(ctx context.Context, pollTicker *ti
 		Mode:        pending.mode,
 		Temperature: pending.temperature,
 		IsDisplayOn: pending.isDisplayOn,
+		IsMildewOn:  pending.isMildewOn,
 	}
 	err = m.s.UpdateDeviceStates(ctx, updateDeviceStatesInput)
 	m.lastUDP = time.Now()
@@ -283,6 +287,11 @@ func (m *deviceMonitor) readPending(ctx context.Context) (*pendingCommands, erro
 		pending.displayAt = message.IsDisplayOn.UpdatedAt
 		pending.anyPending = true
 	}
+	if message.IsMildewOn != nil && !message.IsMildewOn.UpdatedAt.Equal(m.isMildewOnUpdatedTime) {
+		pending.isMildewOn = &message.IsMildewOn.IsMildewOn
+		pending.mildewAt = message.IsMildewOn.UpdatedAt
+		pending.anyPending = true
+	}
 	return pending, nil
 }
 
@@ -301,6 +310,9 @@ func (m *deviceMonitor) rememberApplied(pending *pendingCommands) {
 	}
 	if pending.isDisplayOn != nil {
 		m.isDisplayOnUpdatedTime = pending.displayAt
+	}
+	if pending.isMildewOn != nil {
+		m.isMildewOnUpdatedTime = pending.mildewAt
 	}
 }
 

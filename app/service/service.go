@@ -578,6 +578,25 @@ func (s *service) GetDeviceStates(ctx context.Context, input *models.GetDeviceSt
 		return nil
 	})
 
+	g.Go(func() error {
+		if readDeviceStatusRawReturn == nil ||
+			readDeviceStatusRawReturn.Status.Mildew != raw.Mildew {
+			publishMildewSwitchInput := &modelsMqtt.PublishMildewSwitchInput{
+				Mac:    input.Mac,
+				Status: deviceStatusHA.MildewSwitch,
+			}
+
+			err = s.mqtt.PublishMildewSwitch(gCtx, publishMildewSwitchInput)
+			if err != nil {
+				s.logger.ErrorContext(gCtx, "failed to publish the mildew switch status",
+					slog.Any("err", err),
+					slog.Any("input", publishMildewSwitchInput))
+				return err
+			}
+		}
+		return nil
+	})
+
 	// Wait for all HTTP fetches to complete.
 	if err = g.Wait(); err != nil {
 		return err
@@ -743,7 +762,7 @@ func (s *service) PublishDiscoveryTopic(ctx context.Context, input *models.Publi
 	device := modelsMqtt.DiscoveryTopicDevice{
 		Model: "AirCon",
 		Mf:    "broadlink",
-		Sw:    "v1.5.6",
+		Sw:    "v1.5.7",
 		Ids:   input.Device.Mac,
 		Name:  input.Device.Name,
 	}
@@ -802,7 +821,24 @@ func (s *service) PublishDiscoveryTopic(ctx context.Context, input *models.Publi
 		},
 	}
 
-	return s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchScreenDiscoveryTopicInput)
+	err = s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchScreenDiscoveryTopicInput)
+	if err != nil {
+		return err
+	}
+
+	publishSwitchMildewDiscoveryTopicInput := modelsMqtt.PublishSwitchDiscoveryTopicInput{
+		Topic: modelsMqtt.SwitchDiscoveryTopic{
+			Device:       device,
+			Name:         "Anti-mold",
+			UniqueId:     input.Device.Mac + "_mildew",
+			StateTopic:   prefix + "/mildew/switch/value",
+			CommandTopic: prefix + "/mildew/switch/set",
+			Availability: availability,
+			Icon:         "mdi:water-off",
+		},
+	}
+
+	return s.mqtt.PublishSwitchDiscoveryTopic(ctx, publishSwitchMildewDiscoveryTopicInput)
 }
 
 func (s *service) UpdateFanMode(ctx context.Context, input *models.UpdateFanModeInput) error {
@@ -1012,6 +1048,37 @@ func (s *service) UpdateDisplaySwitch(ctx context.Context, input *models.UpdateD
 	return nil
 }
 
+func (s *service) UpdateMildewSwitch(ctx context.Context, input *models.UpdateMildewSwitchInput) error {
+	err := input.Validate()
+	if err != nil {
+		s.logger.ErrorContext(ctx, "input data is not valid",
+			slog.Any("err", err),
+			slog.String("device", input.Mac),
+			slog.Any("input", input))
+		return err
+	}
+
+	upsertMildewSwitchMessageInput := &modelsRepo.UpsertMqttMildewSwitchMessageInput{
+		Mac: input.Mac,
+		MildewSwitch: modelsRepo.MqttMildewSwitchMessage{
+			UpdatedAt:  time.Now(),
+			IsMildewOn: input.Status == "ON",
+		},
+	}
+
+	err = s.cache.UpsertMqttMildewSwitchMessage(ctx, upsertMildewSwitchMessageInput)
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to save mqtt message to cache storage",
+			slog.Any("err", err),
+			slog.String("device", input.Mac),
+			slog.Any("input", upsertMildewSwitchMessageInput))
+		return err
+	}
+	s.wakeMonitor(input.Mac)
+
+	return nil
+}
+
 func (s *service) UpdateDeviceStates(ctx context.Context, input *models.UpdateDeviceStatesInput) error {
 	readDeviceStatusRawInput := &modelsRepo.ReadDeviceStatusRawInput{
 		Mac: input.Mac,
@@ -1098,6 +1165,14 @@ func (s *service) UpdateDeviceStates(ctx context.Context, input *models.UpdateDe
 		turbo = readDeviceStatusRawReturn.Status.Turbo
 	}
 
+	// MILDEW
+	var mildew byte
+	if input.IsMildewOn != nil {
+		mildew = models.HassMildewToByte(*input.IsMildewOn)
+	} else {
+		mildew = readDeviceStatusRawReturn.Status.Mildew
+	}
+
 	// DISPLAY
 	var displaySwitch byte
 	if input.IsDisplayOn != nil {
@@ -1163,7 +1238,7 @@ func (s *service) UpdateDeviceStates(ctx context.Context, input *models.UpdateDe
 	payload[17] = 0x00
 	payload[18] = 0b00000000 | power<<5 | readDeviceStatusRawReturn.Status.Health<<1 | readDeviceStatusRawReturn.Status.Clean<<2
 	payload[19] = 0x00
-	payload[20] = 0b00000000 | displaySwitch<<4 | readDeviceStatusRawReturn.Status.Mildew<<3
+	payload[20] = 0b00000000 | displaySwitch<<4 | mildew<<3
 	payload[21] = 0b00000000
 	payload[22] = 0b00000000
 

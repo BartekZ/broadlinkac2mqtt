@@ -16,6 +16,7 @@ type MqttSubscriber interface {
 	UpdateModeCommandTopic(ctx context.Context) mqtt.MessageHandler
 	UpdateTemperatureCommandTopic(ctx context.Context) mqtt.MessageHandler
 	UpdateDisplaySwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
+	UpdateMildewSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
 
 	GetStatesOnHomeAssistantRestart(ctx context.Context) mqtt.MessageHandler
 }
@@ -30,6 +31,7 @@ type MqttPublisher interface {
 	PublishFanMode(ctx context.Context, input *modelsMqtt.PublishFanModeInput) error
 	PublishAvailability(ctx context.Context, input *modelsMqtt.PublishAvailabilityInput) error
 	PublishDisplaySwitch(ctx context.Context, input *modelsMqtt.PublishDisplaySwitchInput) error
+	PublishMildewSwitch(ctx context.Context, input *modelsMqtt.PublishMildewSwitchInput) error
 }
 
 type Service interface {
@@ -43,6 +45,7 @@ type Service interface {
 	UpdateSwingMode(ctx context.Context, input *modelsService.UpdateSwingModeInput) error
 	UpdateTemperature(ctx context.Context, input *modelsService.UpdateTemperatureInput) error
 	UpdateDisplaySwitch(ctx context.Context, input *modelsService.UpdateDisplaySwitchInput) error
+	UpdateMildewSwitch(ctx context.Context, input *modelsService.UpdateMildewSwitchInput) error
 
 	UpdateDeviceAvailability(ctx context.Context, input *modelsService.UpdateDeviceAvailabilityInput) error
 
@@ -73,6 +76,7 @@ type Cache interface {
 	UpsertMqttFanModeMessage(ctx context.Context, input *modelsCache.UpsertMqttFanModeMessageInput) error
 	UpsertMqttTemperatureMessage(ctx context.Context, input *modelsCache.UpsertMqttTemperatureMessageInput) error
 	UpsertMqttDisplaySwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttDisplaySwitchMessageInput) error
+	UpsertMqttMildewSwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttMildewSwitchMessageInput) error
 
 	ReadMqttMessage(ctx context.Context, input *modelsCache.ReadMqttMessageInput) (*modelsCache.ReadMqttMessageReturn, error)
 

@@ -105,3 +105,8 @@ type PublishDisplaySwitchInput struct {
 	Mac    string
 	Status string
 }
+
+type PublishMildewSwitchInput struct {
+	Mac    string
+	Status string
+}

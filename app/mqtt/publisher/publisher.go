@@ -153,3 +153,15 @@ func (m *mqttPublisher) PublishDisplaySwitch(ctx context.Context, input *models.
 		return token.Error()
 	}
 }
+
+func (m *mqttPublisher) PublishMildewSwitch(ctx context.Context, input *models.PublishMildewSwitchInput) error {
+	topic := m.mqttConfig.TopicPrefix + "/" + input.Mac + "/mildew/switch/value"
+
+	token := m.client.Publish(topic, 0, false, input.Status)
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-token.Done():
+		return token.Error()
+	}
+}
