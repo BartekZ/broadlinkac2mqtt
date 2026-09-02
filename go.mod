@@ -1,6 +1,8 @@
 module github.com/ArtemVladimirov/broadlinkac2mqtt
 
-go 1.22
+go 1.27
+
+toolchain go1.27.1
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0

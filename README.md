@@ -47,6 +47,9 @@ Example of config.yml
         # Temperature Unit defines the temperature unit of the device, C or F.
         # If this is not set, the temperature unit is Celsius.
         temperature_unit: C
+        # Invert display flips ON/OFF mapping for devices with reversed screen logic.
+        # Default (false)
+        invert_display: false
 
 ```
 

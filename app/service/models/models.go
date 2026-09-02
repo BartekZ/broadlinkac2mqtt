@@ -16,6 +16,7 @@ type DeviceConfig struct {
 	Name            string
 	Port            uint16
 	TemperatureUnit string
+	InvertDisplay   bool
 }
 
 func (input *DeviceConfig) Validate() error {
@@ -64,7 +65,31 @@ type DeviceStatusRaw struct {
 	Clean              byte
 }
 
-func (raw DeviceStatusRaw) ConvertToDeviceStatusHass() (mqttStatus DeviceStatusHass) {
+// DisplayByteToHass converts a protocol display byte to Home Assistant ON/OFF.
+// Default (invertDisplay=false): byte 0 = ON, byte 1 = OFF.
+// invertDisplay=true: byte 1 = ON, byte 0 = OFF.
+func DisplayByteToHass(display byte, invertDisplay bool) string {
+	on := display == 0
+	if invertDisplay {
+		on = display == 1
+	}
+	if on {
+		return "ON"
+	}
+	return "OFF"
+}
+
+// HassDisplayToByte converts Home Assistant display state to a protocol byte.
+// Default (invertDisplay=false): ON = 0, OFF = 1.
+// invertDisplay=true: ON = 1, OFF = 0.
+func HassDisplayToByte(isOn bool, invertDisplay bool) byte {
+	if invertDisplay == isOn {
+		return 1
+	}
+	return 0
+}
+
+func (raw DeviceStatusRaw) ConvertToDeviceStatusHA(invertDisplay bool) (mqttStatus DeviceStatusHass) {
 	var deviceStatusMqtt DeviceStatusHass
 
 	// Temperature
@@ -104,14 +129,7 @@ func (raw DeviceStatusRaw) ConvertToDeviceStatusHass() (mqttStatus DeviceStatusH
 		deviceStatusMqtt.SwingMode = verticalFixationStatus
 	}
 
-	// Display Status
-	// Attention. Inverted logic
-	// Byte 0 - turn ON, Byte 1 - turn OFF
-	if raw.Display == 1 {
-		deviceStatusMqtt.DisplaySwitch = "OFF"
-	} else {
-		deviceStatusMqtt.DisplaySwitch = "ON"
-	}
+	deviceStatusMqtt.DisplaySwitch = DisplayByteToHass(raw.Display, invertDisplay)
 
 	return deviceStatusMqtt
 }

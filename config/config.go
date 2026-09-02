@@ -42,6 +42,9 @@ type (
 		// TemperatureUnit defines the temperature unit of the device, C or F.
 		// If this is not set, the temperature unit is Celsius.
 		TemperatureUnit string `env-default:"C" yaml:"temperature_unit" json:"temperature_unit"` // BUG cleanenv env-default is not working
+		// InvertDisplay flips the display ON/OFF protocol mapping.
+		// Default (false): byte 0 = ON, byte 1 = OFF.
+		InvertDisplay bool `env-default:"false" yaml:"invert_display" json:"invert_display"`
 	}
 )
 

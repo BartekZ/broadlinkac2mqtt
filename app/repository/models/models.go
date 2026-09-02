@@ -18,6 +18,7 @@ type DeviceConfig struct {
 	Name            string
 	Port            uint16
 	TemperatureUnit string
+	InvertDisplay   bool
 }
 
 type DeviceAuth struct {

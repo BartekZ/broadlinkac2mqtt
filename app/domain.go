@@ -36,7 +36,6 @@ type Service interface {
 	PublishDiscoveryTopic(ctx context.Context, input *modelsService.PublishDiscoveryTopicInput) error
 	CreateDevice(ctx context.Context, input *modelsService.CreateDeviceInput) error
 	AuthDevice(ctx context.Context, input *modelsService.AuthDeviceInput) error
-	GetDeviceAmbientTemperature(ctx context.Context, input *modelsService.GetDeviceAmbientTemperatureInput) error
 	GetDeviceStates(ctx context.Context, input *modelsService.GetDeviceStatesInput) error
 
 	UpdateFanMode(ctx context.Context, input *modelsService.UpdateFanModeInput) error
