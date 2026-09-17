@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	modelsMqtt "github.com/ArtemVladimirov/broadlinkac2mqtt/app/mqtt/models"
 	modelsCache "github.com/ArtemVladimirov/broadlinkac2mqtt/app/repository/models"
@@ -16,6 +17,9 @@ type MqttSubscriber interface {
 	UpdateModeCommandTopic(ctx context.Context) mqtt.MessageHandler
 	UpdateTemperatureCommandTopic(ctx context.Context) mqtt.MessageHandler
 	UpdateDisplaySwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
+	UpdateMildewSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
+	UpdateCleanSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
+	UpdateHealthSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler
 
 	GetStatesOnHomeAssistantRestart(ctx context.Context) mqtt.MessageHandler
 }
@@ -30,13 +34,15 @@ type MqttPublisher interface {
 	PublishFanMode(ctx context.Context, input *modelsMqtt.PublishFanModeInput) error
 	PublishAvailability(ctx context.Context, input *modelsMqtt.PublishAvailabilityInput) error
 	PublishDisplaySwitch(ctx context.Context, input *modelsMqtt.PublishDisplaySwitchInput) error
+	PublishMildewSwitch(ctx context.Context, input *modelsMqtt.PublishMildewSwitchInput) error
+	PublishCleanSwitch(ctx context.Context, input *modelsMqtt.PublishCleanSwitchInput) error
+	PublishHealthSwitch(ctx context.Context, input *modelsMqtt.PublishHealthSwitchInput) error
 }
 
 type Service interface {
 	PublishDiscoveryTopic(ctx context.Context, input *modelsService.PublishDiscoveryTopicInput) error
 	CreateDevice(ctx context.Context, input *modelsService.CreateDeviceInput) error
 	AuthDevice(ctx context.Context, input *modelsService.AuthDeviceInput) error
-	GetDeviceAmbientTemperature(ctx context.Context, input *modelsService.GetDeviceAmbientTemperatureInput) error
 	GetDeviceStates(ctx context.Context, input *modelsService.GetDeviceStatesInput) error
 
 	UpdateFanMode(ctx context.Context, input *modelsService.UpdateFanModeInput) error
@@ -44,6 +50,9 @@ type Service interface {
 	UpdateSwingMode(ctx context.Context, input *modelsService.UpdateSwingModeInput) error
 	UpdateTemperature(ctx context.Context, input *modelsService.UpdateTemperatureInput) error
 	UpdateDisplaySwitch(ctx context.Context, input *modelsService.UpdateDisplaySwitchInput) error
+	UpdateMildewSwitch(ctx context.Context, input *modelsService.UpdateMildewSwitchInput) error
+	UpdateCleanSwitch(ctx context.Context, input *modelsService.UpdateCleanSwitchInput) error
+	UpdateHealthSwitch(ctx context.Context, input *modelsService.UpdateHealthSwitchInput) error
 
 	UpdateDeviceAvailability(ctx context.Context, input *modelsService.UpdateDeviceAvailabilityInput) error
 
@@ -54,6 +63,15 @@ type Service interface {
 
 type WebClient interface {
 	SendCommand(ctx context.Context, input *modelsWeb.SendCommandInput) (*modelsWeb.SendCommandReturn, error)
+}
+
+type DeviceBackend interface {
+	Authenticate(ctx context.Context, mac string) error
+	ReadState(ctx context.Context, mac string) (*modelsService.DeviceState, error)
+	ReadAmbient(ctx context.Context, mac string) (*float32, error)
+	ApplyState(ctx context.Context, mac string, input *modelsService.UpdateDeviceStatesInput) error
+	Capabilities(ctx context.Context, mac string) modelsService.DeviceCapabilities
+	MinRequestGap() time.Duration
 }
 
 type Cache interface {
@@ -69,11 +87,17 @@ type Cache interface {
 	UpsertDeviceStatusRaw(ctx context.Context, input *modelsCache.UpsertDeviceStatusRawInput) error
 	ReadDeviceStatusRaw(ctx context.Context, input *modelsCache.ReadDeviceStatusRawInput) (*modelsCache.ReadDeviceStatusRawReturn, error)
 
+	UpsertDeviceStatusHass(ctx context.Context, input *modelsCache.UpsertDeviceStatusHassInput) error
+	ReadDeviceStatusHass(ctx context.Context, input *modelsCache.ReadDeviceStatusHassInput) (*modelsCache.ReadDeviceStatusHassReturn, error)
+
 	UpsertMqttModeMessage(ctx context.Context, input *modelsCache.UpsertMqttModeMessageInput) error
 	UpsertMqttSwingModeMessage(ctx context.Context, input *modelsCache.UpsertMqttSwingModeMessageInput) error
 	UpsertMqttFanModeMessage(ctx context.Context, input *modelsCache.UpsertMqttFanModeMessageInput) error
 	UpsertMqttTemperatureMessage(ctx context.Context, input *modelsCache.UpsertMqttTemperatureMessageInput) error
 	UpsertMqttDisplaySwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttDisplaySwitchMessageInput) error
+	UpsertMqttMildewSwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttMildewSwitchMessageInput) error
+	UpsertMqttCleanSwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttCleanSwitchMessageInput) error
+	UpsertMqttHealthSwitchMessage(ctx context.Context, input *modelsCache.UpsertMqttHealthSwitchMessageInput) error
 
 	ReadMqttMessage(ctx context.Context, input *modelsCache.ReadMqttMessageInput) (*modelsCache.ReadMqttMessageReturn, error)
 

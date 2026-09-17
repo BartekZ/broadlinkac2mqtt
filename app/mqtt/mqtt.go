@@ -13,12 +13,12 @@ import (
 	paho "github.com/eclipse/paho.mqtt.golang"
 )
 
-func NewMqttConfig(logger *slog.Logger, cfg config.Mqtt) (*paho.ClientOptions, error) {
-	//Configure MQTT Client
+func NewMqttConfig(cfg config.Mqtt) (*paho.ClientOptions, error) {
+	// Configure MQTT Client
 	uri, err := url.Parse(cfg.Broker)
 	if err != nil {
 		message := "URL address is incorrect"
-		logger.Error(message)
+		slog.Error(message)
 		return nil, errors.New(message)
 	}
 
@@ -35,11 +35,11 @@ func NewMqttConfig(logger *slog.Logger, cfg config.Mqtt) (*paho.ClientOptions, e
 	opts.SetPingTimeout(10 * time.Second)
 	opts.SetAutoReconnect(true)
 	opts.SetCleanSession(false)
-	opts.SetConnectionLostHandler(func(client paho.Client, err error) {
-		logger.Error("MQTT connection lost", slog.Any("err", err))
+	opts.SetConnectionLostHandler(func(_ paho.Client, err error) {
+		slog.Error("MQTT connection lost", slog.Any("err", err))
 	})
-	opts.SetOnConnectHandler(func(client paho.Client) {
-		logger.Info("Connected to MQTT")
+	opts.SetOnConnectHandler(func(_ paho.Client) {
+		slog.Info("Connected to MQTT")
 	})
 
 	if uri.Scheme == "mqtts" || uri.Scheme == "ssl" {
@@ -48,7 +48,7 @@ func NewMqttConfig(logger *slog.Logger, cfg config.Mqtt) (*paho.ClientOptions, e
 		if cfg.CertificateClient != nil && cfg.KeyClient != nil {
 			cert, err := tls.LoadX509KeyPair(*cfg.CertificateClient, *cfg.KeyClient)
 			if err != nil {
-				logger.Error("Failed to load the client key pair", slog.Any("err", err))
+				slog.Error("Failed to load the client key pair", slog.Any("err", err))
 				return nil, err
 			}
 			tlsConfig.Certificates = []tls.Certificate{cert}
@@ -57,7 +57,7 @@ func NewMqttConfig(logger *slog.Logger, cfg config.Mqtt) (*paho.ClientOptions, e
 		if cfg.CertificateAuthority != nil {
 			caCert, err := os.ReadFile(*cfg.CertificateAuthority)
 			if err != nil {
-				logger.Error("Failed to load the authority certificate", slog.Any("err", err))
+				slog.Error("Failed to load the authority certificate", slog.Any("err", err))
 				return nil, err
 			}
 

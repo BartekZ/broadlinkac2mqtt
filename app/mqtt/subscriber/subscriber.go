@@ -13,24 +13,22 @@ import (
 )
 
 type mqttSubscriber struct {
-	logger     *slog.Logger
 	mqttConfig models.ConfigMqtt
 	service    app.Service
 }
 
-func NewMqttReceiver(logger *slog.Logger, service app.Service, mqttConfig models.ConfigMqtt) app.MqttSubscriber {
+func NewMqttReceiver(service app.Service, mqttConfig models.ConfigMqtt) app.MqttSubscriber {
 	return &mqttSubscriber{
-		logger:     logger,
 		mqttConfig: mqttConfig,
 		service:    service,
 	}
 }
 
 func (m *mqttSubscriber) UpdateFanModeCommandTopic(ctx context.Context) mqtt.MessageHandler {
-	return func(c mqtt.Client, msg mqtt.Message) {
+	return func(_ mqtt.Client, msg mqtt.Message) {
 		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/fan_mode/set"), m.mqttConfig.TopicPrefix+"/")
 
-		m.logger.DebugContext(ctx, "new update fan mode message",
+		slog.DebugContext(ctx, "new update fan mode message",
 			slog.String("device", mac),
 			slog.String("payload", string(msg.Payload())),
 			slog.String("topic", msg.Topic()))
@@ -42,17 +40,17 @@ func (m *mqttSubscriber) UpdateFanModeCommandTopic(ctx context.Context) mqtt.Mes
 
 		err := m.service.UpdateFanMode(ctx, updateFanModeInput)
 		if err != nil {
-			m.logger.ErrorContext(ctx, "failed to update fan mode", slog.Any("input", updateFanModeInput))
+			slog.ErrorContext(ctx, "failed to update fan mode", slog.Any("input", updateFanModeInput))
 			return
 		}
 	}
 }
 
 func (m *mqttSubscriber) UpdateSwingModeCommandTopic(ctx context.Context) mqtt.MessageHandler {
-	return func(c mqtt.Client, msg mqtt.Message) {
+	return func(_ mqtt.Client, msg mqtt.Message) {
 		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/swing_mode/set"), m.mqttConfig.TopicPrefix+"/")
 
-		m.logger.DebugContext(ctx, "new update swing mode message",
+		slog.DebugContext(ctx, "new update swing mode message",
 			slog.String("device", mac),
 			slog.String("payload", string(msg.Payload())),
 			slog.String("topic", msg.Topic()))
@@ -64,17 +62,17 @@ func (m *mqttSubscriber) UpdateSwingModeCommandTopic(ctx context.Context) mqtt.M
 
 		err := m.service.UpdateSwingMode(ctx, updateSwingModeInput)
 		if err != nil {
-			m.logger.ErrorContext(ctx, "failed to update swing mode", slog.Any("input", updateSwingModeInput))
+			slog.ErrorContext(ctx, "failed to update swing mode", slog.Any("input", updateSwingModeInput))
 			return
 		}
 	}
 }
 
 func (m *mqttSubscriber) UpdateModeCommandTopic(ctx context.Context) mqtt.MessageHandler {
-	return func(c mqtt.Client, msg mqtt.Message) {
+	return func(_ mqtt.Client, msg mqtt.Message) {
 		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/mode/set"), m.mqttConfig.TopicPrefix+"/")
 
-		m.logger.DebugContext(ctx, "new update mode message",
+		slog.DebugContext(ctx, "new update mode message",
 			slog.String("device", mac),
 			slog.String("payload", string(msg.Payload())),
 			slog.String("topic", msg.Topic()))
@@ -86,24 +84,24 @@ func (m *mqttSubscriber) UpdateModeCommandTopic(ctx context.Context) mqtt.Messag
 
 		err := m.service.UpdateMode(ctx, updateModeInput)
 		if err != nil {
-			m.logger.ErrorContext(ctx, "failed to update mode", slog.Any("input", updateModeInput))
+			slog.ErrorContext(ctx, "failed to update mode", slog.Any("input", updateModeInput))
 			return
 		}
 	}
 }
 
 func (m *mqttSubscriber) UpdateTemperatureCommandTopic(ctx context.Context) mqtt.MessageHandler {
-	return func(c mqtt.Client, msg mqtt.Message) {
+	return func(_ mqtt.Client, msg mqtt.Message) {
 		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/temp/set"), m.mqttConfig.TopicPrefix+"/")
 
-		m.logger.DebugContext(ctx, "new update temperature mode message",
+		slog.DebugContext(ctx, "new update temperature mode message",
 			slog.String("device", mac),
 			slog.String("payload", string(msg.Payload())),
 			slog.String("topic", msg.Topic()))
 
 		temperature, err := strconv.ParseFloat(string(msg.Payload()), 32)
 		if err != nil {
-			m.logger.ErrorContext(ctx, "failed to parse temperature", slog.Any("err", err), slog.String("input", string(msg.Payload())))
+			slog.ErrorContext(ctx, "failed to parse temperature", slog.Any("err", err), slog.String("input", string(msg.Payload())))
 			return
 		}
 
@@ -114,15 +112,15 @@ func (m *mqttSubscriber) UpdateTemperatureCommandTopic(ctx context.Context) mqtt
 
 		err = m.service.UpdateTemperature(ctx, updateTemperatureInput)
 		if err != nil {
-			m.logger.ErrorContext(ctx, "failed to update temperature", slog.Any("input", updateTemperatureInput))
+			slog.ErrorContext(ctx, "failed to update temperature", slog.Any("input", updateTemperatureInput))
 			return
 		}
 	}
 }
 
 func (m *mqttSubscriber) GetStatesOnHomeAssistantRestart(ctx context.Context) mqtt.MessageHandler {
-	return func(c mqtt.Client, msg mqtt.Message) {
-		m.logger.DebugContext(ctx, "new home assistant LWT message",
+	return func(_ mqtt.Client, msg mqtt.Message) {
+		slog.DebugContext(ctx, "new home assistant LWT message",
 			slog.String("payload", string(msg.Payload())),
 			slog.String("topic", msg.Topic()))
 
@@ -132,17 +130,17 @@ func (m *mqttSubscriber) GetStatesOnHomeAssistantRestart(ctx context.Context) mq
 
 		err := m.service.PublishStatesOnHomeAssistantRestart(ctx, getStatesOnHomeAssistantRestartInput)
 		if err != nil {
-			m.logger.ErrorContext(ctx, "failed to get states", slog.Any("input", getStatesOnHomeAssistantRestartInput))
+			slog.ErrorContext(ctx, "failed to get states", slog.Any("input", getStatesOnHomeAssistantRestartInput))
 			return
 		}
 	}
 }
 
 func (m *mqttSubscriber) UpdateDisplaySwitchCommandTopic(ctx context.Context) mqtt.MessageHandler {
-	return func(c mqtt.Client, msg mqtt.Message) {
+	return func(_ mqtt.Client, msg mqtt.Message) {
 		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/display/switch/set"), m.mqttConfig.TopicPrefix+"/")
 
-		m.logger.DebugContext(ctx, "new update display status message",
+		slog.DebugContext(ctx, "new update display status message",
 			slog.String("device", mac),
 			slog.String("payload", string(msg.Payload())),
 			slog.String("topic", msg.Topic()))
@@ -154,7 +152,73 @@ func (m *mqttSubscriber) UpdateDisplaySwitchCommandTopic(ctx context.Context) mq
 
 		err := m.service.UpdateDisplaySwitch(ctx, updateDisplaySwitchInput)
 		if err != nil {
-			m.logger.ErrorContext(ctx, "failed to update display switch", slog.Any("input", updateDisplaySwitchInput))
+			slog.ErrorContext(ctx, "failed to update display switch", slog.Any("input", updateDisplaySwitchInput))
+			return
+		}
+	}
+}
+
+func (m *mqttSubscriber) UpdateMildewSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler {
+	return func(_ mqtt.Client, msg mqtt.Message) {
+		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/mildew/switch/set"), m.mqttConfig.TopicPrefix+"/")
+
+		slog.DebugContext(ctx, "new update mildew status message",
+			slog.String("device", mac),
+			slog.String("payload", string(msg.Payload())),
+			slog.String("topic", msg.Topic()))
+
+		updateMildewSwitchInput := &modelsservice.UpdateMildewSwitchInput{
+			Mac:    mac,
+			Status: string(msg.Payload()),
+		}
+
+		err := m.service.UpdateMildewSwitch(ctx, updateMildewSwitchInput)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to update mildew switch", slog.Any("input", updateMildewSwitchInput))
+			return
+		}
+	}
+}
+
+func (m *mqttSubscriber) UpdateCleanSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler {
+	return func(_ mqtt.Client, msg mqtt.Message) {
+		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/clean/switch/set"), m.mqttConfig.TopicPrefix+"/")
+
+		slog.DebugContext(ctx, "new update clean status message",
+			slog.String("device", mac),
+			slog.String("payload", string(msg.Payload())),
+			slog.String("topic", msg.Topic()))
+
+		updateCleanSwitchInput := &modelsservice.UpdateCleanSwitchInput{
+			Mac:    mac,
+			Status: string(msg.Payload()),
+		}
+
+		err := m.service.UpdateCleanSwitch(ctx, updateCleanSwitchInput)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to update clean switch", slog.Any("input", updateCleanSwitchInput))
+			return
+		}
+	}
+}
+
+func (m *mqttSubscriber) UpdateHealthSwitchCommandTopic(ctx context.Context) mqtt.MessageHandler {
+	return func(_ mqtt.Client, msg mqtt.Message) {
+		mac := strings.TrimPrefix(strings.TrimSuffix(msg.Topic(), "/health/switch/set"), m.mqttConfig.TopicPrefix+"/")
+
+		slog.DebugContext(ctx, "new update health status message",
+			slog.String("device", mac),
+			slog.String("payload", string(msg.Payload())),
+			slog.String("topic", msg.Topic()))
+
+		updateHealthSwitchInput := &modelsservice.UpdateHealthSwitchInput{
+			Mac:    mac,
+			Status: string(msg.Payload()),
+		}
+
+		err := m.service.UpdateHealthSwitch(ctx, updateHealthSwitchInput)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to update health switch", slog.Any("input", updateHealthSwitchInput))
 			return
 		}
 	}

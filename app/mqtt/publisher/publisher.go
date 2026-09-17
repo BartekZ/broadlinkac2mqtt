@@ -2,7 +2,7 @@ package publisher
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"log/slog"
 
@@ -13,14 +13,12 @@ import (
 )
 
 type mqttPublisher struct {
-	logger     *slog.Logger
 	mqttConfig models.ConfigMqtt
 	client     paho.Client
 }
 
-func NewMqttSender(logger *slog.Logger, mqttConfig models.ConfigMqtt, client paho.Client) app.MqttPublisher {
+func NewMqttSender(mqttConfig models.ConfigMqtt, client paho.Client) app.MqttPublisher {
 	return &mqttPublisher{
-		logger:     logger,
 		mqttConfig: mqttConfig,
 		client:     client,
 	}
@@ -33,7 +31,7 @@ func (m *mqttPublisher) PublishClimateDiscoveryTopic(ctx context.Context, input 
 
 	payload, err := json.Marshal(input.Topic)
 	if err != nil {
-		m.logger.ErrorContext(ctx, "Failed to marshal discovery topic", slog.Any("input", input.Topic), slog.Any("err", err))
+		slog.ErrorContext(ctx, "Failed to marshal discovery topic", slog.Any("input", input.Topic), slog.Any("err", err))
 		return err
 	}
 
@@ -55,7 +53,7 @@ func (m *mqttPublisher) PublishSwitchDiscoveryTopic(ctx context.Context, input m
 
 	payload, err := json.Marshal(input.Topic)
 	if err != nil {
-		m.logger.ErrorContext(ctx, "Failed to marshal discovery topic", slog.Any("input", input.Topic), slog.Any("err", err))
+		slog.ErrorContext(ctx, "Failed to marshal discovery topic", slog.Any("input", input.Topic), slog.Any("err", err))
 		return err
 	}
 
@@ -107,6 +105,12 @@ func (m *mqttPublisher) PublishMode(ctx context.Context, input *models.PublishMo
 }
 
 func (m *mqttPublisher) PublishSwingMode(ctx context.Context, input *models.PublishSwingModeInput) error {
+	if input.SwingMode == "" {
+		slog.WarnContext(ctx, "skip publishing empty swing mode",
+			slog.String("device", input.Mac))
+		return nil
+	}
+
 	topic := m.mqttConfig.TopicPrefix + "/" + input.Mac + "/swing_mode/value"
 
 	token := m.client.Publish(topic, 0, false, input.SwingMode)
@@ -144,6 +148,42 @@ func (m *mqttPublisher) PublishAvailability(ctx context.Context, input *models.P
 
 func (m *mqttPublisher) PublishDisplaySwitch(ctx context.Context, input *models.PublishDisplaySwitchInput) error {
 	topic := m.mqttConfig.TopicPrefix + "/" + input.Mac + "/display/switch/value"
+
+	token := m.client.Publish(topic, 0, false, input.Status)
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-token.Done():
+		return token.Error()
+	}
+}
+
+func (m *mqttPublisher) PublishMildewSwitch(ctx context.Context, input *models.PublishMildewSwitchInput) error {
+	topic := m.mqttConfig.TopicPrefix + "/" + input.Mac + "/mildew/switch/value"
+
+	token := m.client.Publish(topic, 0, false, input.Status)
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-token.Done():
+		return token.Error()
+	}
+}
+
+func (m *mqttPublisher) PublishCleanSwitch(ctx context.Context, input *models.PublishCleanSwitchInput) error {
+	topic := m.mqttConfig.TopicPrefix + "/" + input.Mac + "/clean/switch/value"
+
+	token := m.client.Publish(topic, 0, false, input.Status)
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-token.Done():
+		return token.Error()
+	}
+}
+
+func (m *mqttPublisher) PublishHealthSwitch(ctx context.Context, input *models.PublishHealthSwitchInput) error {
+	topic := m.mqttConfig.TopicPrefix + "/" + input.Mac + "/health/switch/value"
 
 	token := m.client.Publish(topic, 0, false, input.Status)
 	select {

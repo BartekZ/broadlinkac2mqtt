@@ -5,11 +5,23 @@ import (
 )
 
 type Device struct {
-	Config          DeviceConfig
-	Auth            *DeviceAuth
-	DeviceStatus    DeviceStatus
-	DeviceStatusRaw *DeviceStatusRaw
-	MqttLastMessage MqttStatus
+	Config           DeviceConfig
+	Auth             *DeviceAuth
+	DeviceStatus     DeviceStatus
+	DeviceStatusRaw  *DeviceStatusRaw
+	DeviceStatusHass *DeviceStatusHass
+	MqttLastMessage  MqttStatus
+}
+
+type DeviceStatusHass struct {
+	FanMode       string
+	SwingMode     string
+	Mode          string
+	Temperature   float32
+	DisplaySwitch string
+	MildewSwitch  string
+	CleanSwitch   string
+	HealthSwitch  string
 }
 
 type DeviceConfig struct {
@@ -18,6 +30,14 @@ type DeviceConfig struct {
 	Name            string
 	Port            uint16
 	TemperatureUnit string
+	InvertDisplay   bool
+	Backend         string
+	CloudEndpointID string
+	CloudProductID  string
+}
+
+func (c DeviceConfig) IsCloud() bool {
+	return c.Backend == "cloud"
 }
 
 type DeviceAuth struct {
@@ -57,6 +77,9 @@ type MqttStatus struct {
 	Mode          *MqttModeMessage
 	Temperature   *MqttTemperatureMessage
 	DisplaySwitch *MqttDisplaySwitchMessage
+	MildewSwitch  *MqttMildewSwitchMessage
+	CleanSwitch   *MqttCleanSwitchMessage
+	HealthSwitch  *MqttHealthSwitchMessage
 }
 
 type ReadDeviceConfigInput struct {
@@ -110,6 +133,19 @@ type UpsertDeviceStatusRawInput struct {
 	Status DeviceStatusRaw
 }
 
+type ReadDeviceStatusHassInput struct {
+	Mac string
+}
+
+type ReadDeviceStatusHassReturn struct {
+	Status DeviceStatusHass
+}
+
+type UpsertDeviceStatusHassInput struct {
+	Mac    string
+	Status DeviceStatusHass
+}
+
 type MqttModeMessage struct {
 	UpdatedAt time.Time
 	Mode      string
@@ -138,6 +174,36 @@ type MqttDisplaySwitchMessage struct {
 type UpsertMqttDisplaySwitchMessageInput struct {
 	Mac           string
 	DisplaySwitch MqttDisplaySwitchMessage
+}
+
+type MqttMildewSwitchMessage struct {
+	UpdatedAt  time.Time
+	IsMildewOn bool
+}
+
+type UpsertMqttMildewSwitchMessageInput struct {
+	Mac          string
+	MildewSwitch MqttMildewSwitchMessage
+}
+
+type MqttCleanSwitchMessage struct {
+	UpdatedAt time.Time
+	IsCleanOn bool
+}
+
+type UpsertMqttCleanSwitchMessageInput struct {
+	Mac         string
+	CleanSwitch MqttCleanSwitchMessage
+}
+
+type MqttHealthSwitchMessage struct {
+	UpdatedAt  time.Time
+	IsHealthOn bool
+}
+
+type UpsertMqttHealthSwitchMessageInput struct {
+	Mac          string
+	HealthSwitch MqttHealthSwitchMessage
 }
 
 type MqttSwingModeMessage struct {
@@ -170,6 +236,9 @@ type ReadMqttMessageReturn struct {
 	FanMode     *MqttFanModeMessage
 	Mode        *MqttModeMessage
 	IsDisplayOn *MqttDisplaySwitchMessage
+	IsMildewOn  *MqttMildewSwitchMessage
+	IsCleanOn   *MqttCleanSwitchMessage
+	IsHealthOn  *MqttHealthSwitchMessage
 }
 
 type UpsertDeviceAvailabilityInput struct {

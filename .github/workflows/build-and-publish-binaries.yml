@@ -35,5 +35,7 @@ jobs:
         goos: ${{ matrix.goos }}
         goarch: ${{ matrix.goarch }}
         goarm: ${{ matrix.goarm }}
+        goversion: "1.27.1"
         binary_name: "broadlinkac2mqtt"
         extra_files: LICENSE README.md
+        pre_command: export CGO_ENABLED=0
